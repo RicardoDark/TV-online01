@@ -105,8 +105,9 @@ function parseM3U(m3uContent) {
     let currentChannelMeta = null;
     
     state.channels = [];
-    state.folders = [];
-    state.channelsByFolder = {};
+    const allFolder = 'Todos os Canais';
+    state.folders = [allFolder];
+    state.channelsByFolder = { [allFolder]: [] };
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -121,12 +122,6 @@ function parseM3U(m3uContent) {
             const folderName = groupMatch ? groupMatch[1].trim() : 'Outros';
             currentChannelMeta.folder = folderName;
             
-            // Add folder to unique folders list in order of appearance
-            if (!state.folders.includes(folderName)) {
-                state.folders.push(folderName);
-                state.channelsByFolder[folderName] = [];
-            }
-
             // Extract channel name (everything after the last comma)
             const commaIndex = line.lastIndexOf(',');
             if (commaIndex !== -1) {
@@ -140,7 +135,19 @@ function parseM3U(m3uContent) {
                 currentChannelMeta.id = `ch_${state.channels.length}`;
                 
                 state.channels.push(currentChannelMeta);
-                state.channelsByFolder[currentChannelMeta.folder].push(currentChannelMeta);
+                
+                // Add to general folder
+                state.channelsByFolder[allFolder].push(currentChannelMeta);
+                
+                // Add folder to unique folders list in order of appearance
+                const folderName = currentChannelMeta.folder;
+                if (!state.folders.includes(folderName)) {
+                    state.folders.push(folderName);
+                    state.channelsByFolder[folderName] = [];
+                }
+                
+                // Add to specific folder
+                state.channelsByFolder[folderName].push(currentChannelMeta);
                 
                 currentChannelMeta = null; // Reset for next channel
             }
@@ -240,17 +247,18 @@ function playChannel(channel) {
     
     state.playingChannel = channel;
     localStorage.setItem(STORAGE_LAST_CHANNEL_KEY, JSON.stringify(channel));
+    localStorage.setItem('iptv_last_played_folder', state.folders[state.selectedFolderIndex]);
     
     // Update channels UI selected state
     const currentSelected = el.channelsList.querySelector('.selected');
     if (currentSelected) currentSelected.classList.remove('selected');
     
-    // Update current active folder index if we are in channels list
-    const folderChannels = state.channelsByFolder[channel.folder] || [];
+    // If the played channel is in the currently shown folder, mark it selected
+    const currentFolder = state.folders[state.selectedFolderIndex];
+    const folderChannels = state.channelsByFolder[currentFolder] || [];
     const channelIndex = folderChannels.findIndex(c => c.url === channel.url);
     
-    // If the played channel is in the currently shown folder, mark it selected
-    if (state.folders[state.selectedFolderIndex] === channel.folder && channelIndex !== -1) {
+    if (channelIndex !== -1) {
         const item = document.getElementById(`channel-${channelIndex}`);
         if (item) item.classList.add('selected');
     }
@@ -316,17 +324,32 @@ function playChannel(channel) {
 
 // Load Last Played Channel from storage
 function loadLastPlayedChannel() {
-    const raw = localStorage.getItem(STORAGE_LAST_CHANNEL_KEY);
-    if (raw) {
+    const rawChannel = localStorage.getItem(STORAGE_LAST_CHANNEL_KEY);
+    const lastFolder = localStorage.getItem('iptv_last_played_folder');
+    
+    if (rawChannel) {
         try {
-            const channel = JSON.parse(raw);
+            const channel = JSON.parse(rawChannel);
             // Ensure the channel still exists in our current parsed list
             const exists = state.channels.some(c => c.url === channel.url);
             if (exists) {
-                // Find folder index
-                const folderIndex = state.folders.indexOf(channel.folder);
+                // Find folder index using the saved folder if it exists, else channel's folder
+                let folderIndex = -1;
+                if (lastFolder && state.folders.includes(lastFolder)) {
+                    folderIndex = state.folders.indexOf(lastFolder);
+                } else {
+                    folderIndex = state.folders.indexOf(channel.folder);
+                }
+                
                 if (folderIndex !== -1) {
                     selectFolder(folderIndex, false);
+                    
+                    // Update focusedChannelIndex in the folder
+                    const folderChannels = state.channelsByFolder[state.folders[folderIndex]] || [];
+                    const chIdx = folderChannels.findIndex(c => c.url === channel.url);
+                    if (chIdx !== -1) {
+                        state.focusedChannelIndex = chIdx;
+                    }
                 }
                 playChannel(channel);
                 return;
@@ -338,6 +361,7 @@ function loadLastPlayedChannel() {
     
     // Fallback: Play first channel of first folder
     if (state.folders.length > 0) {
+        selectFolder(0, false);
         const firstFolder = state.folders[0];
         const firstFolderChannels = state.channelsByFolder[firstFolder];
         if (firstFolderChannels && firstFolderChannels.length > 0) {
@@ -364,6 +388,30 @@ function toggleMenu(forceVisible = null) {
     }
 }
 
+// Zap Channel (when menu is hidden)
+function zapChannel(direction) {
+    const currentFolder = state.folders[state.selectedFolderIndex];
+    const folderChannels = state.channelsByFolder[currentFolder] || [];
+    if (folderChannels.length === 0) return;
+    
+    let currentIndex = -1;
+    if (state.playingChannel) {
+        currentIndex = folderChannels.findIndex(c => c.url === state.playingChannel.url);
+    }
+    
+    let nextIndex;
+    if (currentIndex === -1) {
+        nextIndex = 0;
+    } else {
+        // Up Arrow (direction = 1) plays next channel, Down Arrow (direction = -1) plays previous channel
+        nextIndex = (currentIndex + direction + folderChannels.length) % folderChannels.length;
+    }
+    
+    state.focusedChannelIndex = nextIndex;
+    const targetChannel = folderChannels[nextIndex];
+    playChannel(targetChannel);
+}
+
 // Setup Keyboard and TV D-Pad Remote Navigation
 function setupKeyboardNavigation() {
     document.addEventListener('keydown', (e) => {
@@ -375,8 +423,19 @@ function setupKeyboardNavigation() {
             return;
         }
 
-        // If menu is hidden, pressing any key (except volume/media buttons) reveals the menu
+        // If menu is hidden, pressing ArrowUp/Down zaps channels, other keys reveal menu
         if (!state.isMenuVisible) {
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                zapChannel(1); // Next channel
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                zapChannel(-1); // Previous channel
+                return;
+            }
+            
             const ignoredKeys = ['VolumeUp', 'VolumeDown', 'VolumeMute', 'Mute'];
             if (!ignoredKeys.includes(e.key)) {
                 e.preventDefault();
