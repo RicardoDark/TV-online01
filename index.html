@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>IPTV Premium Player</title>
     <!-- Google Fonts for premium typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,10 +15,10 @@
 <body>
 
     <!-- Fullscreen Video Player -->
-    <video id="video-player" playsinline autoplay></video>
+    <video id="video-player" playsinline autoplay muted></video>
 
-    <!-- Glassmorphic Overlay Menu -->
-    <div id="overlay-menu" class="visible">
+    <!-- Glassmorphic Overlay Menu - ⚠️ ALTERADO: inicia OCULTO -->
+    <div id="overlay-menu" class="hidden">
         <div class="menu-container">
             <!-- Left Side: Folders -->
             <div class="column folders-column">
@@ -42,8 +42,8 @@
         </div>
     </div>
 
-    <!-- Web Autoplay Bypass Splash Screen -->
-    <div id="splash-screen" class="splash-visible">
+    <!-- ⚠️ TELA DE ABERTURA REMOVIDA/OCULTADA -->
+    <div id="splash-screen" class="hidden">
         <div class="splash-content">
             <h1 class="splash-title">IPTV PLAYER</h1>
             <p class="splash-subtitle">Pressione o botão para iniciar com som</p>
