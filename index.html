@@ -11,42 +11,44 @@
     <script src="hls.min.js"></script>
 </head>
 <body>
-    <!-- Player de vídeo em tela cheia -->
-    <video id="video-player" playsinline webkit-playsinline></video>
 
-    <!-- Menu de canais - INICIA OCULTO -->
+    <video id="video-player" playsinline></video>
+
+    <!-- Menu de canais -->
     <div id="overlay-menu" class="hidden">
         <div class="menu-container">
             <div class="column folders-column">
-                <div class="column-header"><h2>Pastas</h2></div>
+                <div class="column-header">
+                    <h2>Pastas</h2>
+                </div>
                 <div class="list-container" id="folders-list"></div>
             </div>
             <div class="column channels-column">
-                <div class="column-header"><h2 id="current-folder-title">Canais</h2></div>
+                <div class="column-header">
+                    <h2 id="current-folder-title">Canais</h2>
+                </div>
                 <div class="list-container" id="channels-list"></div>
             </div>
         </div>
     </div>
 
-    <!-- ✅ TELA DE BOAS-VINDAS - aparece primeiro -->
+    <!-- ✅ Tela de Boas-Vindas Ativada -->
     <div id="splash-screen" class="splash-visible">
         <div class="splash-content">
-            <h1 class="splash-title">BEM-VINDO</h1>
-            <p class="splash-subtitle">Clique no botão ou aperte OK no controle para iniciar</p>
-            <button id="btn-start" class="btn-primary">INICIAR</button>
+            <h1 class="splash-title">IPTV PLAYER</h1>
+            <p class="splash-subtitle">Clique no botão abaixo para começar a assistir com som</p>
+            <button id="btn-start" class="btn-primary">INICIAR REPRODUÇÃO</button>
         </div>
     </div>
 
-    <!-- Status e carregamento -->
     <div id="status-container" class="hidden">
         <div class="spinner"></div>
-        <p id="status-message"></p>
+        <div id="status-message">Carregando canais...</div>
     </div>
 
-    <!-- Aviso do canal -->
     <div id="toast-info" class="hidden">
-        <div class="toast-channel-name" id="toast-channel-name"></div>
-        <div class="toast-channel-group" id="toast-channel-group"></div>
+        <div class="toast-channel-name" id="toast-channel-name">Nome do Canal</div>
+        <div class="toast-channel-group" id="toast-channel-group">Grupo do Canal</div>
     </div>
 
     <script src="app.js"></script>

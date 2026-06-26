@@ -5,10 +5,10 @@
     --border-glass: rgba(255, 255, 255, 0.08);
     --text-primary: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.6);
-    --accent-color: #00e5ff; /* Cyan Neon */
+    --accent-color: #00e5ff;
     --accent-gradient: linear-gradient(135deg, #00b4db, #0083b0);
     --focus-gradient: linear-gradient(135deg, #00e5ff, #0083b0);
-    --playing-color: #00ff88; /* Verde para canal tocando */
+    --playing-color: #00ff88;
     --font-sans: 'Outfit', sans-serif;
     --transition-speed: 0.25s;
 }
@@ -30,7 +30,6 @@ body, html {
     -webkit-user-select: none;
 }
 
-/* Fullscreen Background Video */
 #video-player {
     position: absolute;
     top: 0;
@@ -42,7 +41,6 @@ body, html {
     z-index: 1;
 }
 
-/* Overlay Menu Container */
 #overlay-menu {
     position: absolute;
     top: 0;
@@ -63,7 +61,6 @@ body, html {
     transform: translateX(0);
 }
 
-/* Two-Column Layout */
 .menu-container {
     display: flex;
     width: 650px;
@@ -75,7 +72,6 @@ body, html {
     box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
 }
 
-/* Columns */
 .column {
     display: flex;
     flex-direction: column;
@@ -91,7 +87,6 @@ body, html {
     flex: 1;
 }
 
-/* Header */
 .column-header {
     padding: 25px 20px 15px 20px;
 }
@@ -118,7 +113,6 @@ body, html {
     border-radius: 2px;
 }
 
-/* List Containers */
 .list-container {
     flex: 1;
     overflow-y: auto;
@@ -126,7 +120,6 @@ body, html {
     scroll-behavior: smooth;
 }
 
-/* Hide Scrollbar but allow scrolling */
 .list-container::-webkit-scrollbar {
     width: 6px;
 }
@@ -141,7 +134,6 @@ body, html {
     background: rgba(255, 255, 255, 0.3);
 }
 
-/* List Items */
 .list-item {
     padding: 14px 18px;
     margin-bottom: 8px;
@@ -166,7 +158,6 @@ body, html {
     color: var(--text-primary);
 }
 
-/* Pasta selecionada */
 .list-item.folder-item.selected {
     background: rgba(0, 229, 255, 0.15);
     border-color: var(--accent-color);
@@ -174,7 +165,6 @@ body, html {
     font-weight: 600;
 }
 
-/* Canal que está tocando */
 .list-item.channel-item.playing {
     background: rgba(0, 255, 136, 0.15);
     border-color: var(--playing-color);
@@ -188,7 +178,6 @@ body, html {
     font-size: 1rem;
 }
 
-/* Focus State */
 .list-item.focused {
     background: var(--focus-gradient);
     color: #000000 !important;
@@ -199,7 +188,6 @@ body, html {
     outline: none;
 }
 
-/* Splash Screen */
 #splash-screen {
     position: absolute;
     top: 0;
@@ -262,14 +250,13 @@ body, html {
     letter-spacing: 1px;
 }
 
-.btn-primary:focus, .btn-primary.focused {
+.btn-primary:hover, .btn-primary:focus {
     outline: none;
     transform: scale(1.05);
     background: var(--focus-gradient);
     box-shadow: 0 0 20px rgba(0, 229, 255, 0.6);
 }
 
-/* Status / Carregando - MOVIDO PARA CANTO SUPERIOR DIREITO */
 #status-container {
     position: absolute;
     top: 20px;
@@ -312,30 +299,31 @@ body, html {
     white-space: nowrap;
 }
 
-/* Toast Info Popup */
+/* ✅ JANELINHA AJUSTADA: Canto inferior direito, maior e mais visível */
 #toast-info {
     position: absolute;
-    bottom: 40px;
-    left: 40px;
+    bottom: 50px;
+    right: 50px;
     z-index: 20;
-    background: rgba(10, 10, 14, 0.9);
-    backdrop-filter: blur(10px);
-    border-left: 4px solid var(--accent-color);
-    padding: 16px 24px;
-    border-radius: 0 12px 12px 0;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    background: rgba(10, 10, 14, 0.92);
+    backdrop-filter: blur(12px);
+    border-right: 4px solid var(--accent-color);
+    padding: 20px 30px;
+    border-radius: 12px 0 0 12px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+    min-width: 280px;
     transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .toast-channel-name {
-    font-size: 1.15rem;
-    font-weight: 600;
+    font-size: 1.4rem;
+    font-weight: 700;
     color: #ffffff;
-    margin-bottom: 2px;
+    margin-bottom: 6px;
 }
 
 .toast-channel-group {
-    font-size: 0.85rem;
+    font-size: 1rem;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 1px;

@@ -1,26 +1,31 @@
 // Constants
 const M3U_URL = 'https://raw.githubusercontent.com/RicardoDark/iptv01/refs/heads/main/minhalista.m3u';
 const STORAGE_LAST_CHANNEL_KEY = 'iptv_last_played_channel';
+const STORAGE_LAST_FOLDER_KEY = 'iptv_last_selected_folder';
 
-// State
+// State Management
 let state = {
     channels: [],
     folders: [],
     channelsByFolder: {},
+    
     activeColumn: 'folders',
     focusedFolderIndex: 0,
     focusedChannelIndex: 0,
     selectedFolderIndex: 0,
     playingChannel: null,
+    
     isMenuVisible: false,
     hls: null,
     isAndroid: false,
-    appStarted: false,
+    userInteracted: false,
+
     touchStartY: 0,
+    touchEndY: 0,
     swipeThreshold: 80
 };
 
-// Elementos
+// DOM Elements
 const el = {
     video: document.getElementById('video-player'),
     overlay: document.getElementById('overlay-menu'),
@@ -40,48 +45,58 @@ const urlParams = new URLSearchParams(window.location.search);
 state.isAndroid = navigator.userAgent.toLowerCase().includes('android') || urlParams.get('platform') === 'android';
 
 window.addEventListener('DOMContentLoaded', () => {
-    // Botão da tela inicial + OK do controle
-    el.btnStart.focus();
-    el.btnStart.classList.add('focused');
-    el.btnStart.addEventListener('click', startApp);
-    document.addEventListener('keydown', (e) => {
-        if (el.splash.classList.contains('splash-visible') && (e.key === 'Enter' || e.key === 'NumpadEnter')) {
-            e.preventDefault();
-            startApp();
-        }
+    el.splash.classList.add('splash-visible');
+    el.splash.classList.remove('hidden');
+
+    el.btnStart.addEventListener('click', () => {
+        state.userInteracted = true;
+        el.splash.classList.remove('splash-visible');
+        el.splash.classList.add('hidden');
+        startApp();
     });
+
+    setupTouchSwipe();
+    setupClickOutsideToClose();
 });
 
 function startApp() {
-    if (state.appStarted) return;
-    state.appStarted = true;
-
-    // Esconde a tela de boas-vindas
-    el.splash.classList.remove('splash-visible');
-    el.splash.classList.add('hidden');
-
     showStatus('Carregando lista de canais...');
-    fetch(M3U_URL)
-        .then(res => { if (!res.ok) throw new Error('Erro na lista'); return res.text(); })
-        .then(data => {
-            parseM3U(data);
-            hideStatus();
-            if (state.folders.length === 0) { showStatus('Nenhum canal encontrado', true); return; }
-            renderFolders();
-            selectFolder(0, false);
-            loadLastPlayedChannel(); // ✅ Garante último canal
-            updateFocusDOM();
-            setupKeyboardNavigation();
-            setupMouseClickHandlers(); // ✅ Reativado corretamente
-            setupTouchSwipe();
-            setupClickOutsideToClose();
-        })
-        .catch(err => { console.error(err); showStatus('Erro de conexão', true); });
+    
+    fetch(M3U_URL, {
+        method: 'GET',
+        cache: 'no-cache',
+        headers: { 'Accept': 'text/plain, */*' }
+    })
+    .then(response => {
+        if (!response.ok) throw new Error(`Erro: ${response.status}`);
+        return response.text();
+    })
+    .then(data => {
+        if (!data.trim()) throw new Error('Lista vazia ou inválida');
+        parseM3U(data);
+        hideStatus();
+        
+        if (state.folders.length === 0) {
+            showStatus('Nenhum canal encontrado.', true);
+            return;
+        }
+        
+        renderFolders();
+        loadLastPlayedChannel(); // ✅ Carrega último canal automaticamente
+        updateFocusDOM();
+        setupKeyboardNavigation();
+        setupMouseClickHandlers();
+    })
+    .catch(err => {
+        console.error('Erro:', err);
+        showStatus('❌ Verifique sua conexão.', true);
+    });
 }
 
 function parseM3U(m3uContent) {
     const lines = m3uContent.split('\n');
     let currentChannelMeta = null;
+    
     state.channels = [];
     const allFolder = 'Todos os Canais';
     state.folders = [allFolder];
@@ -90,13 +105,15 @@ function parseM3U(m3uContent) {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
+
         if (line.startsWith('#EXTINF:')) {
             currentChannelMeta = {};
             const groupMatch = line.match(/group-title="([^"]+)"/);
-            currentChannelMeta.folder = groupMatch ? groupMatch[1].trim() : 'Outros';
+            const folderName = groupMatch ? groupMatch[1].trim() : 'Outros';
+            currentChannelMeta.folder = folderName;
             const commaIndex = line.lastIndexOf(',');
-            currentChannelMeta.name = commaIndex > -1 ? line.substring(commaIndex + 1).trim() : 'Sem Nome';
-        } else if (line.startsWith('http')) {
+            currentChannelMeta.name = commaIndex !== -1 ? line.substring(commaIndex + 1).trim() : 'Sem Nome';
+        } else if (line.startsWith('http://') || line.startsWith('https://')) {
             if (currentChannelMeta) {
                 currentChannelMeta.url = line;
                 currentChannelMeta.id = `ch_${state.channels.length}`;
@@ -115,139 +132,171 @@ function parseM3U(m3uContent) {
 
 function renderFolders() {
     el.foldersList.innerHTML = '';
-    state.folders.forEach((name, i) => {
+    state.folders.forEach((folderName, index) => {
         const item = document.createElement('div');
         item.className = 'list-item folder-item';
-        item.id = `folder-${i}`;
-        item.textContent = name;
-        item.dataset.index = i;
+        item.id = `folder-${index}`;
+        item.textContent = folderName;
+        item.dataset.index = index;
         el.foldersList.appendChild(item);
     });
 }
 
 function renderChannels(folderName) {
     el.channelsList.innerHTML = '';
-    const list = state.channelsByFolder[folderName] || [];
-    list.forEach((ch, i) => {
+    const folderChannels = state.channelsByFolder[folderName] || [];
+    folderChannels.forEach((channel, index) => {
         const item = document.createElement('div');
         item.className = 'list-item channel-item';
-        item.id = `channel-${i}`;
-        item.textContent = ch.name;
-        item.dataset.index = i;
-        if (state.playingChannel && ch.url === state.playingChannel.url) item.classList.add('playing');
+        item.id = `channel-${index}`;
+        item.textContent = channel.name;
+        item.dataset.index = index;
+        if (state.playingChannel && state.playingChannel.url === channel.url) {
+            item.classList.add('playing');
+        }
         el.channelsList.appendChild(item);
     });
 }
 
-function selectFolder(index, focus = false) {
+function selectFolder(index, focusChannels = false) {
     state.selectedFolderIndex = index;
-    el.currentFolderTitle.textContent = state.folders[index];
-    document.querySelectorAll('.folder-item').forEach((el, i) => el.classList.toggle('selected', i === index));
-    renderChannels(state.folders[index]);
-    if (focus) { state.activeColumn = 'channels'; state.focusedChannelIndex = 0; }
+    const folderName = state.folders[index];
+    el.currentFolderTitle.textContent = folderName;
+    localStorage.setItem(STORAGE_LAST_FOLDER_KEY, folderName); // ✅ Salva pasta atual
+    document.querySelectorAll('.folder-item').forEach((item, idx) => {
+        item.classList.toggle('selected', idx === index);
+    });
+    renderChannels(folderName);
+    if (focusChannels) {
+        state.activeColumn = 'channels';
+        state.focusedChannelIndex = 0;
+    }
 }
 
 function updateFocusDOM() {
-    document.querySelectorAll('.list-item.focused').forEach(el => el.classList.remove('focused'));
+    document.querySelectorAll('.list-item.focused').forEach(item => item.classList.remove('focused'));
     if (!state.isMenuVisible) return;
-    const focusedEl = state.activeColumn === 'folders' ? document.getElementById(`folder-${state.focusedFolderIndex}`) : document.getElementById(`channel-${state.focusedChannelIndex}`);
-    if (focusedEl) { focusedEl.classList.add('focused'); focusedEl.scrollIntoView({ block: 'nearest' }); }
+    const focusedElement = state.activeColumn === 'folders' 
+        ? document.getElementById(`folder-${state.focusedFolderIndex}`)
+        : document.getElementById(`channel-${state.focusedChannelIndex}`);
+    if (focusedElement) {
+        focusedElement.classList.add('focused');
+        focusedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
 }
 
 function playChannel(channel) {
-    if (!channel?.url) return;
+    if (!channel || !channel.url) return;
+    if (!state.userInteracted) {
+        showStatus('Clique em "Iniciar" para liberar o som', false);
+        return;
+    }
+
     showStatus('Carregando canal...');
-    if (state.hls) { state.hls.destroy(); state.hls = null; }
+    if (state.hls) {
+        state.hls.destroy();
+        state.hls = null;
+    }
 
     state.playingChannel = channel;
-    localStorage.setItem(STORAGE_LAST_CHANNEL_KEY, JSON.stringify(channel));
-    localStorage.setItem('iptv_last_played_folder', state.folders[state.selectedFolderIndex]);
+    localStorage.setItem(STORAGE_LAST_CHANNEL_KEY, JSON.stringify(channel)); // ✅ Salva canal atual
     selectFolder(state.selectedFolderIndex, false);
 
     if (Hls.isSupported()) {
-        const hls = new Hls({ maxBufferSize: 0, liveSyncDuration: 3, enableWorker: true });
+        const hls = new Hls({
+            maxBufferSize: 0,
+            maxBufferLength: 30,
+            liveSyncDuration: 3,
+            enableWorker: true,
+            startLevel: -1,
+            xhrSetup: xhr => { xhr.withCredentials = false; }
+        });
         state.hls = hls;
         hls.loadSource(channel.url);
         hls.attachMedia(el.video);
+
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
             el.video.muted = false;
             el.video.play()
                 .then(() => { hideStatus(); showToast(channel.name, channel.folder); })
-                .catch(err => {
-                    console.error('Erro ao reproduzir:', err);
-                    el.video.muted = false;
-                    el.video.play().catch(() => showStatus('Não foi possível reproduzir', false));
-                });
+                .catch(() => { el.video.muted = false; el.video.play().catch(() => {}); });
         });
-        hls.on(Hls.Events.ERROR, (e, d) => {
-            if (d.fatal) {
-                if (d.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-                else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-                else showStatus('Erro no canal', false);
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data.fatal) {
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) setTimeout(() => hls.startLoad(), 2500);
+                else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+                else showStatus('Não foi possível reproduzir.', false);
             }
         });
     } else if (el.video.canPlayType('application/vnd.apple.mpegurl')) {
         el.video.src = channel.url;
         el.video.muted = false;
+        el.video.load();
         el.video.addEventListener('loadedmetadata', () => {
-            el.video.play()
-                .then(() => { hideStatus(); showToast(channel.name, channel.folder); })
-                .catch(() => showStatus('Não foi possível reproduzir', false));
+            el.video.play().then(() => { hideStatus(); showToast(channel.name, channel.folder); }).catch(() => {});
         });
     } else {
-        showStatus('Formato não suportado', false);
+        showStatus('Formato não suportado.', false);
     }
 }
 
-// ✅ Função reforçada para SEMPRE carregar o último canal
+// ✅ Função garantida para carregar o último canal salvo
 function loadLastPlayedChannel() {
-    const saved = localStorage.getItem(STORAGE_LAST_CHANNEL_KEY);
-    const savedFolder = localStorage.getItem('iptv_last_played_folder');
-    if (saved) {
+    const rawChannel = localStorage.getItem(STORAGE_LAST_CHANNEL_KEY);
+    const lastFolderName = localStorage.getItem(STORAGE_LAST_FOLDER_KEY);
+
+    if (rawChannel) {
         try {
-            const ch = JSON.parse(saved);
-            const exists = state.channels.some(c => c.url === ch.url);
-            if (exists) {
-                let folderIdx = state.folders.includes(savedFolder) ? state.folders.indexOf(savedFolder) : state.folders.indexOf(ch.folder);
-                if (folderIdx === -1) folderIdx = 0;
-                selectFolder(folderIdx, false);
-                const list = state.channelsByFolder[state.folders[folderIdx]] || [];
-                const idx = list.findIndex(c => c.url === ch.url);
-                if (idx > -1) state.focusedChannelIndex = idx;
-                setTimeout(() => playChannel(ch), 300);
+            const lastChannel = JSON.parse(rawChannel);
+            const canalExiste = state.channels.some(c => c.url === lastChannel.url);
+            
+            if (canalExiste) {
+                let pastaIndex = state.folders.indexOf(lastFolderName || lastChannel.folder);
+                if (pastaIndex === -1) pastaIndex = 0;
+
+                selectFolder(pastaIndex, false);
+                const canalIndex = state.channelsByFolder[state.folders[pastaIndex]].findIndex(c => c.url === lastChannel.url);
+                if (canalIndex !== -1) state.focusedChannelIndex = canalIndex;
+
+                playChannel(lastChannel);
                 return;
             }
-        } catch (e) { console.error('Erro ao carregar último canal:', e); }
+        } catch (e) {
+            console.warn('Erro ao recuperar último canal:', e);
+        }
     }
-    // Primeiro canal se não tiver salvo
+
+    // Se não tiver canal salvo, abre o primeiro da lista
     if (state.folders.length > 0) {
         selectFolder(0, false);
-        const first = state.channelsByFolder[state.folders[0]]?.[0];
-        if (first) setTimeout(() => playChannel(first), 300);
+        const primeiroCanal = state.channelsByFolder[state.folders[0]]?.[0];
+        if (primeiroCanal) playChannel(primeiroCanal);
     }
 }
 
-function toggleMenu(force) {
-    state.isMenuVisible = force !== null ? force : !state.isMenuVisible;
+function toggleMenu(forceVisible = null) {
+    state.isMenuVisible = forceVisible !== null ? forceVisible : !state.isMenuVisible;
     el.overlay.classList.toggle('visible', state.isMenuVisible);
     el.overlay.classList.toggle('hidden', !state.isMenuVisible);
-    updateFocusDOM();
+    if (state.isMenuVisible) updateFocusDOM();
 }
 
 function zapChannel(direction) {
-    const list = state.channelsByFolder[state.folders[state.selectedFolderIndex]] || [];
-    if (!list.length) return;
-    let idx = state.playingChannel ? list.findIndex(c => c.url === state.playingChannel.url) : -1;
-    idx = (idx + direction + list.length) % list.length;
-    state.focusedChannelIndex = idx;
-    playChannel(list[idx]);
+    const canaisPasta = state.channelsByFolder[state.folders[state.selectedFolderIndex]] || [];
+    if (canaisPasta.length === 0) return;
+    const idxAtual = state.playingChannel ? canaisPasta.findIndex(c => c.url === state.playingChannel.url) : -1;
+    const proximoIdx = (idxAtual + direction + canaisPasta.length) % canaisPasta.length;
+    state.focusedChannelIndex = proximoIdx;
+    playChannel(canaisPasta[proximoIdx]);
 }
 
 function setupTouchSwipe() {
-    el.video.addEventListener('touchstart', e => state.touchStartY = e.touches[0].clientY, { passive: true });
+    el.video.addEventListener('touchstart', e => { state.touchStartY = e.touches[0].clientY; }, { passive: true });
     el.video.addEventListener('touchend', e => {
-        const diff = state.touchStartY - e.changedTouches[0].clientY;
-        if (Math.abs(diff) > state.swipeThreshold) diff > 0 ? zapChannel(1) : zapChannel(-1);
+        state.touchEndY = e.changedTouches[0].clientY;
+        const diffY = state.touchStartY - state.touchEndY;
+        if (Math.abs(diffY) > state.swipeThreshold) diffY > 0 ? zapChannel(1) : zapChannel(-1);
     }, { passive: true });
 }
 
@@ -257,78 +306,104 @@ function setupClickOutsideToClose() {
 
 function setupKeyboardNavigation() {
     document.addEventListener('keydown', e => {
-        if (!state.appStarted || el.splash.classList.contains('splash-visible')) return;
         if (!state.isMenuVisible) {
             if (e.key === 'ArrowUp') { e.preventDefault(); zapChannel(1); return; }
             if (e.key === 'ArrowDown') { e.preventDefault(); zapChannel(-1); return; }
-            if (!['VolumeUp','VolumeDown','VolumeMute','Mute'].includes(e.key)) { e.preventDefault(); toggleMenu(true); }
+            if (!['VolumeUp','VolumeDown','VolumeMute'].includes(e.key)) { e.preventDefault(); toggleMenu(true); }
             return;
         }
-        const folderCount = state.folders.length;
-        const channelCount = state.channelsByFolder[state.folders[state.selectedFolderIndex]]?.length || 0;
+        const qtdPastas = state.folders.length;
+        const qtdCanais = state.channelsByFolder[state.folders[state.selectedFolderIndex]]?.length || 0;
         switch (e.key) {
-            case 'ArrowUp': e.preventDefault(); state.activeColumn === 'folders' ? state.focusedFolderIndex = (state.focusedFolderIndex -1 + folderCount) % folderCount : state.focusedChannelIndex = (state.focusedChannelIndex -1 + channelCount) % channelCount; updateFocusDOM(); break;
-            case 'ArrowDown': e.preventDefault(); state.activeColumn === 'folders' ? state.focusedFolderIndex = (state.focusedFolderIndex +1) % folderCount : state.focusedChannelIndex = (state.focusedChannelIndex +1) % channelCount; updateFocusDOM(); break;
-            case 'ArrowRight': e.preventDefault(); if (state.activeColumn === 'folders' && channelCount) { state.activeColumn = 'channels'; const idx = state.channelsByFolder[state.folders[state.selectedFolderIndex]].findIndex(c => c.url === state.playingChannel?.url); state.focusedChannelIndex = idx > -1 ? idx : 0; updateFocusDOM(); } break;
-            case 'ArrowLeft': e.preventDefault(); if (state.activeColumn === 'channels') { state.activeColumn = 'folders'; state.focusedFolderIndex = state.selectedFolderIndex; updateFocusDOM(); } break;
-            case 'Enter': case 'NumpadEnter': e.preventDefault(); if (state.activeColumn === 'folders') { selectFolder(state.focusedFolderIndex, true); updateFocusDOM(); } else { const ch = state.channelsByFolder[state.folders[state.selectedFolderIndex]]?.[state.focusedChannelIndex]; if (ch) state.playingChannel?.url === ch.url ? toggleMenu(false) : playChannel(ch); } break;
-            case 'Escape': case 'Backspace': e.preventDefault(); handleBackAction(); break;
+            case 'ArrowUp':
+                e.preventDefault();
+                if (state.activeColumn === 'folders') {
+                    state.focusedFolderIndex = (state.focusedFolderIndex - 1 + qtdPastas) % qtdPastas;
+                    selectFolder(state.focusedFolderIndex, false);
+                } else {
+                    state.focusedChannelIndex = (state.focusedChannelIndex - 1 + qtdCanais) % qtdCanais;
+                }
+                updateFocusDOM();
+                break;
+            case 'ArrowDown':
+                e.preventDefault();
+                if (state.activeColumn === 'folders') {
+                    state.focusedFolderIndex = (state.focusedFolderIndex + 1) % qtdPastas;
+                    selectFolder(state.focusedFolderIndex, false);
+                } else {
+                    state.focusedChannelIndex = (state.focusedChannelIndex + 1) % qtdCanais;
+                }
+                updateFocusDOM();
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                if (state.activeColumn === 'folders' && qtdCanais > 0) {
+                    state.activeColumn = 'channels';
+                    state.focusedChannelIndex = state.playingChannel ? qtdCanais.findIndex(c => c.url === state.playingChannel.url) || 0 : 0;
+                    updateFocusDOM();
+                }
+                break;
+            case 'ArrowLeft':
+                e.preventDefault();
+                if (state.activeColumn === 'channels') {
+                    state.activeColumn = 'folders';
+                    state.focusedFolderIndex = state.selectedFolderIndex;
+                    updateFocusDOM();
+                }
+                break;
+            case 'Enter':
+                e.preventDefault();
+                if (state.activeColumn === 'folders') selectFolder(state.focusedFolderIndex, true);
+                else {
+                    const canal = state.channelsByFolder[state.folders[state.selectedFolderIndex]]?.[state.focusedChannelIndex];
+                    if (canal) state.playingChannel?.url === canal.url ? toggleMenu(false) : playChannel(canal);
+                }
+                updateFocusDOM();
+                break;
+            case 'Escape':
+            case 'Backspace':
+                e.preventDefault();
+                if (!state.isMenuVisible) toggleMenu(true);
+                else if (state.activeColumn === 'channels') { state.activeColumn = 'folders'; updateFocusDOM(); }
+                else toggleMenu(false);
+                break;
         }
     });
 }
 
-// ✅ Função de clique corrigida e reforçada
 function setupMouseClickHandlers() {
-    el.foldersList.addEventListener('click', e => { 
-        const item = e.target.closest('.folder-item'); 
-        if (!item) return; 
-        const i = parseInt(item.dataset.index); 
-        state.focusedFolderIndex = i; 
-        state.activeColumn = 'folders'; 
-        selectFolder(i, false); 
-        updateFocusDOM(); 
+    el.foldersList.addEventListener('click', e => {
+        const item = e.target.closest('.folder-item');
+        if (!item) return;
+        const idx = parseInt(item.dataset.index);
+        state.focusedFolderIndex = idx;
+        state.activeColumn = 'folders';
+        selectFolder(idx, false);
+        updateFocusDOM();
     });
-
-    el.channelsList.addEventListener('click', e => { 
-        const item = e.target.closest('.channel-item'); 
-        if (!item) return; 
-        const i = parseInt(item.dataset.index); 
-        const ch = state.channelsByFolder[state.folders[state.selectedFolderIndex]]?.[i]; 
-        if (ch) {
-            playChannel(ch); 
-            toggleMenu(false);
-        }
+    el.channelsList.addEventListener('click', e => {
+        const item = e.target.closest('.channel-item');
+        if (!item) return;
+        const idx = parseInt(item.dataset.index);
+        state.focusedChannelIndex = idx;
+        state.activeColumn = 'channels';
+        updateFocusDOM();
+        const canal = state.channelsByFolder[state.folders[state.selectedFolderIndex]]?.[idx];
+        if (canal) state.playingChannel?.url === canal.url ? toggleMenu(false) : playChannel(canal);
     });
-
-    // ✅ Clique no vídeo abre/fecha a grade
-    el.video.addEventListener('click', e => { 
-        e.stopPropagation(); 
-        toggleMenu(); 
-    });
-
-    // ✅ Toque também funciona no celular
-    el.video.addEventListener('touchend', e => { 
-        if (Math.abs(state.touchStartY - e.changedTouches[0].clientY) < 10) {
-            e.stopPropagation(); 
-            toggleMenu(); 
-        }
-    }, { passive: true });
+    el.video.addEventListener('click', () => toggleMenu());
 }
 
 function showStatus(msg) { el.statusMsg.textContent = msg; el.status.classList.remove('hidden'); }
 function hideStatus() { el.status.classList.add('hidden'); }
 
 let toastTimer;
-function showToast(name, folder) {
-    el.toastName.textContent = name; el.toastGroup.textContent = folder; el.toast.classList.remove('hidden');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.toast.classList.add('hidden'), 4000);
+function showToast(nome, grupo) {
+    el.toastName.textContent = nome;
+    el.toastGroup.textContent = grupo;
+    el.toast.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.toast.classList.add('hidden'), 4000);
 }
 
-function handleBackAction() {
-    if (!state.isMenuVisible) { toggleMenu(true); return true; }
-    if (state.activeColumn === 'channels') { state.activeColumn = 'folders'; state.focusedFolderIndex = state.selectedFolderIndex; updateFocusDOM(); return true; }
-    if (state.isAndroid && window.Android?.exitApp) window.Android.exitApp(); else toggleMenu(false);
-    return true;
-}
-
-window.AndroidInterface = { handleBackButton: () => handleBackAction() };
+window.AndroidInterface = { handleBackButton: () => { toggleMenu(!state.isMenuVisible); return true; } };
