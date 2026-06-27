@@ -48,16 +48,35 @@ window.addEventListener('DOMContentLoaded', () => {
     el.splash.classList.add('splash-visible');
     el.splash.classList.remove('hidden');
 
-    el.btnStart.addEventListener('click', () => {
-        state.userInteracted = true;
-        el.splash.classList.remove('splash-visible');
-        el.splash.classList.add('hidden');
-        startApp();
-    });
+    // ✅ Ação do botão de clique
+    el.btnStart.addEventListener('click', startAppFlow);
+
+    // ✅ NOVA FUNÇÃO: Detecta qualquer tecla/botão para fechar a tela de boas-vindas
+    document.addEventListener('keydown', handleSplashKeyPress);
 
     setupTouchSwipe();
     setupClickOutsideToClose();
 });
+
+// ✅ Função centralizada para iniciar o app
+function startAppFlow() {
+    state.userInteracted = true;
+    el.splash.classList.remove('splash-visible');
+    el.splash.classList.add('hidden');
+    // Remove o evento de tecla depois de iniciar para não atrapalhar o resto do app
+    document.removeEventListener('keydown', handleSplashKeyPress);
+    startApp();
+}
+
+// ✅ Função que responde a qualquer tecla/botão na tela de boas-vindas
+function handleSplashKeyPress(e) {
+    // Só funciona se a tela de boas-vindas estiver visível
+    if (!el.splash.classList.contains('splash-visible')) return;
+
+    // Aceita qualquer tecla: Enter, Espaço, OK do controle, setas, etc.
+    e.preventDefault();
+    startAppFlow();
+}
 
 function startApp() {
     showStatus('Carregando lista de canais...');
@@ -82,7 +101,7 @@ function startApp() {
         }
         
         renderFolders();
-        loadLastPlayedChannel(); // ✅ Carrega último canal automaticamente
+        loadLastPlayedChannel();
         updateFocusDOM();
         setupKeyboardNavigation();
         setupMouseClickHandlers();
@@ -162,7 +181,7 @@ function selectFolder(index, focusChannels = false) {
     state.selectedFolderIndex = index;
     const folderName = state.folders[index];
     el.currentFolderTitle.textContent = folderName;
-    localStorage.setItem(STORAGE_LAST_FOLDER_KEY, folderName); // ✅ Salva pasta atual
+    localStorage.setItem(STORAGE_LAST_FOLDER_KEY, folderName);
     document.querySelectorAll('.folder-item').forEach((item, idx) => {
         item.classList.toggle('selected', idx === index);
     });
@@ -188,7 +207,7 @@ function updateFocusDOM() {
 function playChannel(channel) {
     if (!channel || !channel.url) return;
     if (!state.userInteracted) {
-        showStatus('Clique em "Iniciar" para liberar o som', false);
+        showStatus('Clique em "Iniciar" ou aperte qualquer botão para liberar o som', false);
         return;
     }
 
@@ -199,7 +218,7 @@ function playChannel(channel) {
     }
 
     state.playingChannel = channel;
-    localStorage.setItem(STORAGE_LAST_CHANNEL_KEY, JSON.stringify(channel)); // ✅ Salva canal atual
+    localStorage.setItem(STORAGE_LAST_CHANNEL_KEY, JSON.stringify(channel));
     selectFolder(state.selectedFolderIndex, false);
 
     if (Hls.isSupported()) {
@@ -241,7 +260,6 @@ function playChannel(channel) {
     }
 }
 
-// ✅ Função garantida para carregar o último canal salvo
 function loadLastPlayedChannel() {
     const rawChannel = localStorage.getItem(STORAGE_LAST_CHANNEL_KEY);
     const lastFolderName = localStorage.getItem(STORAGE_LAST_FOLDER_KEY);
@@ -267,7 +285,6 @@ function loadLastPlayedChannel() {
         }
     }
 
-    // Se não tiver canal salvo, abre o primeiro da lista
     if (state.folders.length > 0) {
         selectFolder(0, false);
         const primeiroCanal = state.channelsByFolder[state.folders[0]]?.[0];
