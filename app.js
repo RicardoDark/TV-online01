@@ -27,6 +27,8 @@ let state = {
 
 // DOM Elements
 const el = {
+    introVideoScreen: document.getElementById('intro-video-screen'),
+    introVideo: document.getElementById('intro-video'),
     video: document.getElementById('video-player'),
     overlay: document.getElementById('overlay-menu'),
     foldersList: document.getElementById('folders-list'),
@@ -45,35 +47,46 @@ const urlParams = new URLSearchParams(window.location.search);
 state.isAndroid = navigator.userAgent.toLowerCase().includes('android') || urlParams.get('platform') === 'android';
 
 window.addEventListener('DOMContentLoaded', () => {
-    el.splash.classList.add('splash-visible');
-    el.splash.classList.remove('hidden');
+    playIntroVideo();
 
-    // ✅ Ação do botão de clique
     el.btnStart.addEventListener('click', startAppFlow);
-
-    // ✅ NOVA FUNÇÃO: Detecta qualquer tecla/botão para fechar a tela de boas-vindas
     document.addEventListener('keydown', handleSplashKeyPress);
 
     setupTouchSwipe();
     setupClickOutsideToClose();
 });
 
-// ✅ Função centralizada para iniciar o app
+function playIntroVideo() {
+    el.introVideo.muted = true;
+    el.introVideo.play().catch(err => {
+        console.warn('Reprodução automática bloqueada:', err);
+        skipIntroVideo();
+    });
+
+    setTimeout(() => {
+        skipIntroVideo();
+    }, 10000);
+
+    el.introVideo.addEventListener('ended', skipIntroVideo);
+}
+
+function skipIntroVideo() {
+    el.introVideo.pause();
+    el.introVideo.currentTime = 0;
+    el.introVideoScreen.classList.add('hidden');
+    el.splash.classList.add('splash-visible');
+}
+
 function startAppFlow() {
     state.userInteracted = true;
     el.splash.classList.remove('splash-visible');
     el.splash.classList.add('hidden');
-    // Remove o evento de tecla depois de iniciar para não atrapalhar o resto do app
     document.removeEventListener('keydown', handleSplashKeyPress);
     startApp();
 }
 
-// ✅ Função que responde a qualquer tecla/botão na tela de boas-vindas
 function handleSplashKeyPress(e) {
-    // Só funciona se a tela de boas-vindas estiver visível
     if (!el.splash.classList.contains('splash-visible')) return;
-
-    // Aceita qualquer tecla: Enter, Espaço, OK do controle, setas, etc.
     e.preventDefault();
     startAppFlow();
 }
