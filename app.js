@@ -17,7 +17,8 @@ let state = {
     
     isMenuVisible: true,
     hls: null,
-    isAndroid: false
+    isAndroid: false,
+    menuTimeout: null
 };
 
 // DOM Elements
@@ -232,6 +233,20 @@ function updateFocusDOM() {
     }
 }
 
+// Inactivity Timer for Menu
+function resetMenuInactivityTimer() {
+    if (state.menuTimeout) {
+        clearTimeout(state.menuTimeout);
+        state.menuTimeout = null;
+    }
+
+    if (state.isMenuVisible) {
+        state.menuTimeout = setTimeout(() => {
+            toggleMenu(false);
+        }, 10000); // 10 segundos
+    }
+}
+
 // Play Selected Channel
 function playChannel(channel) {
     if (!channel || !channel.url) return;
@@ -382,9 +397,14 @@ function toggleMenu(forceVisible = null) {
         el.overlay.classList.add('visible');
         el.overlay.classList.remove('hidden');
         updateFocusDOM();
+        resetMenuInactivityTimer();
     } else {
         el.overlay.classList.remove('visible');
         el.overlay.classList.add('hidden');
+        if (state.menuTimeout) {
+            clearTimeout(state.menuTimeout);
+            state.menuTimeout = null;
+        }
     }
 }
 
@@ -403,7 +423,6 @@ function zapChannel(direction) {
     if (currentIndex === -1) {
         nextIndex = 0;
     } else {
-        // Up Arrow (direction = 1) plays next channel, Down Arrow (direction = -1) plays previous channel
         nextIndex = (currentIndex + direction + folderChannels.length) % folderChannels.length;
     }
     
@@ -415,6 +434,11 @@ function zapChannel(direction) {
 // Setup Keyboard and TV D-Pad Remote Navigation
 function setupKeyboardNavigation() {
     document.addEventListener('keydown', (e) => {
+        // Se o menu estiver visível, reinicia a contagem dos 10 segundos a cada toque de tecla
+        if (state.isMenuVisible) {
+            resetMenuInactivityTimer();
+        }
+
         // If splash screen is active, do nothing else
         if (el.splash.classList.contains('splash-visible') && !state.isAndroid) {
             if (e.key === 'Enter') {
@@ -475,7 +499,6 @@ function setupKeyboardNavigation() {
                 e.preventDefault();
                 if (state.activeColumn === 'folders' && channelCount > 0) {
                     state.activeColumn = 'channels';
-                    // Focus currently playing channel if it is in this folder, else focus first
                     const playingInThisFolder = state.playingChannel && state.playingChannel.folder === state.folders[state.selectedFolderIndex];
                     if (playingInThisFolder) {
                         const idx = currentFolderChannels.findIndex(c => c.url === state.playingChannel.url);
@@ -499,16 +522,13 @@ function setupKeyboardNavigation() {
             case 'Enter':
                 e.preventDefault();
                 if (state.activeColumn === 'folders') {
-                    // Enter on a folder moves focus to channels list
                     selectFolder(state.focusedFolderIndex, true);
                     updateFocusDOM();
                 } else {
-                    // Enter on a channel plays it
                     const targetChannel = currentFolderChannels[state.focusedChannelIndex];
                     if (targetChannel) {
                         const isAlreadyPlaying = state.playingChannel && state.playingChannel.url === targetChannel.url;
                         if (isAlreadyPlaying) {
-                            // If same channel, close the menu (toggle)
                             toggleMenu(false);
                         } else {
                             playChannel(targetChannel);
@@ -528,8 +548,8 @@ function setupKeyboardNavigation() {
 
 // Setup Mouse click interactions
 function setupMouseClickHandlers() {
-    // Folders list click
     el.foldersList.addEventListener('click', (e) => {
+        resetMenuInactivityTimer();
         const item = e.target.closest('.list-item');
         if (!item) return;
         const index = parseInt(item.dataset.index);
@@ -539,8 +559,8 @@ function setupMouseClickHandlers() {
         updateFocusDOM();
     });
 
-    // Channels list click
     el.channelsList.addEventListener('click', (e) => {
+        resetMenuInactivityTimer();
         const item = e.target.closest('.list-item');
         if (!item) return;
         const index = parseInt(item.dataset.index);
@@ -560,7 +580,6 @@ function setupMouseClickHandlers() {
         }
     });
 
-    // Tap on background video toggles menu
     el.video.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleMenu();
@@ -607,7 +626,6 @@ function handleBackAction() {
         updateFocusDOM();
         return true;
     } else {
-        // We are on folders column and menu is visible
         if (state.isAndroid && window.Android && typeof window.Android.exitApp === 'function') {
             window.Android.exitApp();
             return true;
@@ -618,7 +636,7 @@ function handleBackAction() {
     }
 }
 
-// External command receiver interface (called from Android App wrapper Native side)
+// External command receiver interface
 window.AndroidInterface = {
     handleBackButton: function() {
         return handleBackAction();
