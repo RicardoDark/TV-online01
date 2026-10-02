@@ -2,57 +2,62 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IPTV Premium Player</title>
+    <!-- Google Fonts for premium typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <!-- Local HLS.js Library -->
     <script src="hls.min.js"></script>
 </head>
 <body>
 
-    <!-- Tela de Abertura com Vídeo -->
-    <div id="intro-video-screen">
-        <video id="intro-video" muted playsinline preload="auto">
-            <source src="https://www.dropbox.com/scl/fi/ex8ncg0qyfwkrnvenuror/intro01.mp4?rlkey=p13zgal6474qgejbif26q0dsb&st=e1tpjtvl&dl=1" type="video/mp4">
-        </video>
-    </div>
+    <!-- Fullscreen Video Player -->
+    <video id="video-player" playsinline autoplay></video>
 
-    <video id="video-player" playsinline></video>
-
-    <!-- Menu de canais -->
-    <div id="overlay-menu" class="hidden">
+    <!-- Glassmorphic Overlay Menu -->
+    <div id="overlay-menu" class="visible">
         <div class="menu-container">
+            <!-- Left Side: Folders -->
             <div class="column folders-column">
                 <div class="column-header">
                     <h2>Pastas</h2>
                 </div>
-                <div class="list-container" id="folders-list"></div>
+                <div class="list-container" id="folders-list">
+                    <!-- Folders will be injected here -->
+                </div>
             </div>
+
+            <!-- Right Side: Channels -->
             <div class="column channels-column">
                 <div class="column-header">
                     <h2 id="current-folder-title">Canais</h2>
                 </div>
-                <div class="list-container" id="channels-list"></div>
+                <div class="list-container" id="channels-list">
+                    <!-- Channels will be injected here -->
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Tela de Boas-Vindas -->
-    <div id="splash-screen">
+    <!-- Web Autoplay Bypass Splash Screen -->
+    <div id="splash-screen" class="splash-visible">
         <div class="splash-content">
             <h1 class="splash-title">IPTV PLAYER</h1>
-            <p class="splash-subtitle">Clique no botão abaixo para começar a assistir com som</p>
-            <button id="btn-start" class="btn-primary">INICIAR REPRODUÇÃO</button>
+            <p class="splash-subtitle">Pressione o botão para iniciar com som</p>
+            <button id="btn-start" class="btn-primary">INICIAR PLAYER</button>
         </div>
     </div>
 
+    <!-- Status & Loading Overlay -->
     <div id="status-container" class="hidden">
         <div class="spinner"></div>
         <div id="status-message">Carregando canais...</div>
     </div>
 
+    <!-- Action Bar / Info (shown briefly when channel changes) -->
     <div id="toast-info" class="hidden">
         <div class="toast-channel-name" id="toast-channel-name">Nome do Canal</div>
         <div class="toast-channel-group" id="toast-channel-group">Grupo do Canal</div>
