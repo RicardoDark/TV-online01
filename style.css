@@ -289,7 +289,7 @@ body, html {
     outline: none;
     transform: scale(1.05);
     background: var(--focus-gradient);
-    box-shadow: 0 `0 20px rgba(0, 229, 255, 0.6);
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.6);
 }
 
 /* Loading & Status Spinner */
@@ -336,17 +336,18 @@ body, html {
     color: var(--text-secondary);
 }
 
-/* Toast Info Popup */
+/* Toast Info Popup - Posicionado no Canto Superior Direito */
 #toast-info {
     position: absolute;
-    bottom: 40px;
-    left: 40px;
+    top: 40px;
+    right: 40px;
     z-index: 20;
     background: rgba(10, 10, 14, 0.9);
     backdrop-filter: blur(10px);
-    border-left: 4px solid var(--accent-color);
+    border-right: 4px solid var(--accent-color);
+    border-left: none;
     padding: 16px 24px;
-    border-radius: 0 12px 12px 0;
+    border-radius: 12px 0 0 12px;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
     transition: opacity 0.3s ease, transform 0.3s ease;
 }
