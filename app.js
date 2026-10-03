@@ -15,7 +15,7 @@ let state = {
     selectedFolderIndex: 0, // Folder currently shown on the right
     playingChannel: null, // Currently playing channel object
     
-    isMenuVisible: true,
+    isMenuVisible: false, // Alterado para false para iniciar oculto
     hls: null,
     isAndroid: false,
     menuTimeout: null
@@ -43,6 +43,10 @@ state.isAndroid = navigator.userAgent.toLowerCase().includes('android') || urlPa
 
 // Initialize App
 window.addEventListener('DOMContentLoaded', () => {
+    // Garante que o menu overlay comece escondido visualmente no DOM
+    el.overlay.classList.remove('visible');
+    el.overlay.classList.add('hidden');
+
     // If Android WebView, we can skip the splash screen because autoplay with sound is unlocked natively
     if (state.isAndroid) {
         el.splash.classList.add('hidden');
