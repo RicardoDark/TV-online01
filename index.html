@@ -2,8 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <!-- Viewport ajustada para celular: sem zoom extra, escala exata -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IPTV Premium Player</title>
     <!-- Google Fonts for premium typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,8 +13,10 @@
     <script src="hls.min.js"></script>
 </head>
 <body>
+
     <!-- Fullscreen Video Player -->
     <video id="video-player" playsinline autoplay></video>
+
     <!-- Glassmorphic Overlay Menu -->
     <div id="overlay-menu" class="visible">
         <div class="menu-container">
@@ -28,6 +29,7 @@
                     <!-- Folders will be injected here -->
                 </div>
             </div>
+
             <!-- Right Side: Channels -->
             <div class="column channels-column">
                 <div class="column-header">
@@ -39,6 +41,7 @@
             </div>
         </div>
     </div>
+
     <!-- Web Autoplay Bypass Splash Screen -->
     <div id="splash-screen" class="splash-visible">
         <div class="splash-content">
@@ -47,16 +50,19 @@
             <button id="btn-start" class="btn-primary">INICIAR PLAYER</button>
         </div>
     </div>
+
     <!-- Status & Loading Overlay -->
     <div id="status-container" class="hidden">
         <div class="spinner"></div>
         <div id="status-message">Carregando canais...</div>
     </div>
+
     <!-- Action Bar / Info (shown briefly when channel changes) -->
     <div id="toast-info" class="hidden">
         <div class="toast-channel-name" id="toast-channel-name">Nome do Canal</div>
         <div class="toast-channel-group" id="toast-channel-group">Grupo do Canal</div>
     </div>
+
     <script src="app.js"></script>
 </body>
 </html>

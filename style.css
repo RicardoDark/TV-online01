@@ -11,11 +11,13 @@
     --font-sans: 'Outfit', sans-serif;
     --transition-speed: 0.25s;
 }
+
 * {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
 }
+
 body, html {
     width: 100%;
     height: 100%;
@@ -26,6 +28,7 @@ body, html {
     user-select: none;
     -webkit-user-select: none;
 }
+
 /* Fullscreen Background Video */
 #video-player {
     position: absolute;
@@ -37,6 +40,7 @@ body, html {
     background-color: #000;
     z-index: 1;
 }
+
 /* Overlay Menu Container */
 #overlay-menu {
     position: absolute;
@@ -51,16 +55,17 @@ body, html {
     transform: translateX(-50px);
     transition: opacity var(--transition-speed) ease, transform var(--transition-speed) ease;
 }
+
 #overlay-menu.visible {
     opacity: 1;
     pointer-events: auto;
     transform: translateX(0);
 }
+
 /* Two-Column Layout - Largura reduzida para os cartões ficarem compactos */
 .menu-container {
     display: flex;
     width: 780px;
-    max-width: 100%;
     height: 100%;
     background: var(--bg-dark);
     backdrop-filter: blur(15px);
@@ -68,23 +73,28 @@ body, html {
     border-right: 1px solid var(--border-glass);
     box-shadow: 10px 0 30px rgba(0, 0, 0, 0.7);
 }
+
 /* Columns */
 .column {
     display: flex;
     flex-direction: column;
     height: 100%;
 }
+
 .folders-column {
     width: 270px;
     border-right: 1px solid var(--border-glass);
 }
+
 .channels-column {
     flex: 1;
 }
+
 /* Header */
 .column-header {
     padding: 30px 25px 20px 25px;
 }
+
 .column-header h2 {
     font-size: 1.4rem;
     font-weight: 800;
@@ -95,6 +105,7 @@ body, html {
     position: relative;
     padding-bottom: 8px;
 }
+
 .column-header h2::after {
     content: '';
     position: absolute;
@@ -105,6 +116,7 @@ body, html {
     background: var(--accent-gradient);
     border-radius: 2px;
 }
+
 /* List Containers */
 .list-container {
     flex: 1;
@@ -112,6 +124,7 @@ body, html {
     padding: 15px;
     scroll-behavior: smooth;
 }
+
 /* Hide Scrollbar but allow scrolling */
 .list-container::-webkit-scrollbar {
     width: 6px;
@@ -126,6 +139,7 @@ body, html {
 .list-container::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
 }
+
 /* List Items (Folders) */
 .folders-column .list-item {
     padding: 16px 18px;
@@ -145,6 +159,7 @@ body, html {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
 /* List Items (Channels) - Cartões maiores mas com largura controlada */
 .channels-column .list-item {
     padding: 18px 22px;
@@ -163,6 +178,7 @@ body, html {
     min-height: 75px;
     overflow: hidden;
 }
+
 .channels-column .list-item img,
 .channels-column .list-item .channel-icon {
     width: 45px;
@@ -172,10 +188,12 @@ body, html {
     margin-right: 15px;
     background: rgba(255, 255, 255, 0.05);
 }
+
 .list-item:hover {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-primary);
 }
+
 /* Focus State (Active D-Pad selection) */
 .list-item.focused {
     background: var(--focus-gradient);
@@ -186,18 +204,21 @@ body, html {
     box-shadow: 0 0 20px rgba(0, 229, 255, 0.6);
     outline: none;
 }
+
 /* Selected State */
 .list-item.selected {
     border-color: var(--accent-color);
     color: var(--text-primary);
     background: rgba(0, 229, 255, 0.15);
 }
+
 .list-item.selected::before {
     content: '•';
     color: var(--accent-color);
     margin-right: 10px;
     font-size: 1.4rem;
 }
+
 /* Splash Screen (Autoplay Bypass) */
 #splash-screen {
     position: absolute;
@@ -214,10 +235,12 @@ body, html {
     pointer-events: none;
     transition: opacity 0.5s ease;
 }
+
 #splash-screen.splash-visible {
     opacity: 1;
     pointer-events: auto;
 }
+
 .splash-content {
     text-align: center;
     max-width: 450px;
@@ -227,6 +250,7 @@ body, html {
     border: 1px solid var(--border-glass);
     backdrop-filter: blur(10px);
 }
+
 .splash-title {
     font-size: 3rem;
     font-weight: 800;
@@ -236,11 +260,13 @@ body, html {
     -webkit-text-fill-color: transparent;
     margin-bottom: 10px;
 }
+
 .splash-subtitle {
     color: var(--text-secondary);
     font-size: 0.95rem;
     margin-bottom: 30px;
 }
+
 .btn-primary {
     padding: 14px 32px;
     border: none;
@@ -255,12 +281,14 @@ body, html {
     text-transform: uppercase;
     letter-spacing: 1px;
 }
+
 .btn-primary:focus, .btn-primary.focused {
     outline: none;
     transform: scale(1.05);
     background: var(--focus-gradient);
     box-shadow: 0 0 20px rgba(0, 229, 255, 0.6);
 }
+
 /* Loading & Status Spinner */
 #status-container {
     position: absolute;
@@ -278,10 +306,12 @@ body, html {
     border: 1px solid var(--border-glass);
     transition: opacity 0.3s ease;
 }
+
 .hidden {
     opacity: 0 !important;
     pointer-events: none !important;
 }
+
 .spinner {
     width: 40px;
     height: 40px;
@@ -291,15 +321,18 @@ body, html {
     animation: spin 1s linear infinite;
     margin-bottom: 12px;
 }
+
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
 #status-message {
     font-size: 0.95rem;
     font-weight: 400;
     color: var(--text-secondary);
 }
+
 /* Toast Info Popup */
 #toast-info {
     position: absolute;
@@ -314,126 +347,17 @@ body, html {
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
     transition: opacity 0.3s ease, transform 0.3s ease;
 }
+
 .toast-channel-name {
     font-size: 1.15rem;
     font-weight: 600;
     color: #ffffff;
     margin-bottom: 2px;
 }
+
 .toast-channel-group {
     font-size: 0.85rem;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 1px;
-}
-
-/* ===================================================== */
-/*          AJUSTES PARA TELAS PEQUENAS (CELULAR)        */
-/* ===================================================== */
-
-@media (max-width: 768px) {
-    /* Container principal ocupa toda largura */
-    .menu-container {
-        width: 100%;
-    }
-    
-    /* Coluna de pastas mais estreita no celular */
-    .folders-column {
-        width: 35%;
-        min-width: 110px;
-    }
-    
-    /* Cabeçalhos menores */
-    .column-header {
-        padding: 15px 12px 10px 12px;
-    }
-    
-    .column-header h2 {
-        font-size: 1rem;
-    }
-    
-    /* Itens das pastas mais compactos */
-    .folders-column .list-item {
-        padding: 10px 12px;
-        font-size: 0.85rem;
-        border-radius: 10px;
-    }
-    
-    /* Itens dos canais ajustados */
-    .channels-column .list-item {
-        padding: 12px 14px;
-        font-size: 0.9rem;
-        min-height: 55px;
-        border-radius: 12px;
-    }
-    
-    /* Ícone menor */
-    .channels-column .list-item img,
-    .channels-column .list-item .channel-icon {
-        width: 32px;
-        height: 32px;
-        margin-right: 10px;
-    }
-    
-    /* Lista com espaçamento reduzido */
-    .list-container {
-        padding: 10px 8px;
-    }
-    
-    /* Tela inicial menor */
-    .splash-content {
-        padding: 25px;
-        max-width: 90%;
-    }
-    
-    .splash-title {
-        font-size: 2rem;
-        letter-spacing: 2px;
-    }
-    
-    .splash-subtitle {
-        font-size: 0.85rem;
-        margin-bottom: 20px;
-    }
-    
-    .btn-primary {
-        padding: 12px 24px;
-        font-size: 0.9rem;
-    }
-    
-    /* Avisos/Toast ajustados */
-    #toast-info {
-        bottom: 20px;
-        left: 15px;
-        right: 15px;
-        padding: 12px 16px;
-        border-radius: 12px;
-    }
-    
-    .toast-channel-name {
-        font-size: 1rem;
-    }
-    
-    .toast-channel-group {
-        font-size: 0.75rem;
-    }
-    
-    /* Tela de carregamento */
-    #status-container {
-        padding: 15px 20px;
-    }
-}
-
-/* Ajuste extra para telas MUITO pequenas */
-@media (max-width: 400px) {
-    .folders-column .list-item {
-        padding: 8px 10px;
-        font-size: 0.75rem;
-    }
-    
-    .channels-column .list-item {
-        padding: 10px 12px;
-        font-size: 0.8rem;
-        min-height: 48px;
-    }
 }
