@@ -361,3 +361,50 @@ body, html {
     text-transform: uppercase;
     letter-spacing: 1px;
 }
+
+/* Ajustes Responsivos para Celulares / Telas Pequenas */
+@media screen and (max-width: 768px) {
+    .menu-container {
+        width: 100% !important;
+    }
+    
+    .folders-column {
+        width: 110px !important;
+    }
+    
+    .column-header {
+        padding: 15px 10px 10px 10px;
+    }
+    
+    .column-header h2 {
+        font-size: 0.85rem;
+        letter-spacing: 0.5px;
+    }
+    
+    .list-container {
+        padding: 8px;
+    }
+    
+    .folders-column .list-item {
+        padding: 10px 8px;
+        font-size: 0.8rem;
+        margin-bottom: 6px;
+        border-radius: 8px;
+    }
+    
+    .channels-column .list-item {
+        padding: 10px 12px;
+        font-size: 0.85rem;
+        margin-bottom: 8px;
+        min-height: 50px;
+        border-radius: 10px;
+    }
+    
+    .channels-column .list-item img, 
+    .channels-column .list-item .channel-icon {
+        width: 32px;
+        height: 32px;
+        margin-right: 8px;
+        border-radius: 6px;
+    }
+}
