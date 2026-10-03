@@ -156,6 +156,7 @@ function parseM3U(m3uContent) {
                 const folderLower = currentChannelMeta.folder.toLowerCase();
                 const isMovieFolder = folderLower.includes('movie Anime') || 
 				folderLower.includes('123456') || 
+				folderLower.includes('Ikkitousen') ||
 				folderLower.includes('Nadja do Amanhã') || folderLower.includes('movie') || folderLower.includes('vod') || 
 				folderLower.includes('Thumbelina') || 
 				currentChannelMeta.url.endsWith('.mp4') || currentChannelMeta.url.endsWith('.mkv');
