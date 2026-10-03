@@ -18,13 +18,18 @@
     padding: 0;
 }
 
-body {
-    width: 1920px; /* Trava a base de cálculo do layout */
-    margin: 0 auto;
-    /* Se quiser diminuir tudo proporcionalmente de forma fixa, use scale: */
-    /* transform: scale(0.85); */
-    /* transform-origin: top left; */
-}
+body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #000;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    user-select: none;
+    -webkit-user-select: none;
+    /* Força o layout a basear o desenho em 1920px de largura e escala proporcional */
+    min-width: 1920px;
+    zoom: 85%; /* Ajusta a proporção base para celulares caso o viewport do HTML não restrinja sozinho */
 }
 
 /* Fullscreen Background Video */
