@@ -156,6 +156,7 @@ function parseM3U(m3uContent) {
                 const folderLower = currentChannelMeta.folder.toLowerCase();
                 const isMovieFolder = folderLower.includes('movie Anime') || 
 				folderLower.includes('123456') || 
+				folderLower.includes('Auto da Compadecida') ||
 				folderLower.includes('Barom One') ||
 				folderLower.includes('Galaxy Angel') ||
 				folderLower.includes('Ikkitousen') ||
