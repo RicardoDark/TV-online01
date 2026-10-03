@@ -5,17 +5,14 @@ const STORAGE_LAST_CHANNEL_KEY = 'iptv_last_played_channel';
 // State Management
 let state = {
     channels: [],
-    folders: [], // Unique groups in order of appearance
-    channelsByFolder: {}, // folderName -> Array of channels
-    
-    // Navigation State
-    activeColumn: 'folders', // 'folders' or 'channels'
+    folders: [],
+    channelsByFolder: {},
+    activeColumn: 'folders',
     focusedFolderIndex: 0,
     focusedChannelIndex: 0,
-    selectedFolderIndex: 0, // Folder currently shown on the right
-    playingChannel: null, // Currently playing channel object
-    
-    isMenuVisible: false, // Alterado para false para iniciar oculto
+    selectedFolderIndex: 0,
+    playingChannel: null,
+    isMenuVisible: false,
     hls: null,
     isAndroid: false,
     menuTimeout: null
@@ -37,23 +34,18 @@ const el = {
     toastGroup: document.getElementById('toast-channel-group')
 };
 
-// Check if running on Android WebView via User Agent or Query Param
 const urlParams = new URLSearchParams(window.location.search);
 state.isAndroid = navigator.userAgent.toLowerCase().includes('android') || urlParams.get('platform') === 'android';
 
-// Initialize App
 window.addEventListener('DOMContentLoaded', () => {
-    // Garante que o menu overlay comece escondido visualmente no DOM
     el.overlay.classList.remove('visible');
     el.overlay.classList.add('hidden');
 
-    // If Android WebView, we can skip the splash screen because autoplay with sound is unlocked natively
     if (state.isAndroid) {
         el.splash.classList.add('hidden');
         el.splash.classList.remove('splash-visible');
         startApp();
     } else {
-        // Desktop Browser: Wait for user gesture to unlock audio
         el.btnStart.focus();
         el.btnStart.classList.add('focused');
         
@@ -65,7 +57,6 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Main start function
 function startApp() {
     showStatus('Carregando lista de canais...');
     fetch(M3U_URL)
@@ -82,19 +73,14 @@ function startApp() {
                 return;
             }
             
-            // Build UI
             renderFolders();
-            selectFolder(0, false); // Select first folder but don't focus channels
-            
-            // Load and play last channel or first channel
+            selectFolder(0, false);
             loadLastPlayedChannel();
             
-            // Set initial focus
             state.activeColumn = 'folders';
             state.focusedFolderIndex = 0;
             updateFocusDOM();
             
-            // Register Keyboard / Remote Control Events
             setupKeyboardNavigation();
             setupMouseClickHandlers();
         })
@@ -104,7 +90,6 @@ function startApp() {
         });
 }
 
-// M3U Playlist Parser
 function parseM3U(m3uContent) {
     const lines = m3uContent.split('\n');
     let currentChannelMeta = null;
@@ -120,14 +105,10 @@ function parseM3U(m3uContent) {
 
         if (line.startsWith('#EXTINF:')) {
             currentChannelMeta = {};
-            
-            // Extract group-title (Folder)
             const groupMatch = line.match(/group-title="([^"]+)"/);
-            // Default group if not present
             const folderName = groupMatch ? groupMatch[1].trim() : 'Outros';
             currentChannelMeta.folder = folderName;
             
-            // Extract channel name (everything after the last comma)
             const commaIndex = line.lastIndexOf(',');
             if (commaIndex !== -1) {
                 currentChannelMeta.name = line.substring(commaIndex + 1).trim();
@@ -140,27 +121,21 @@ function parseM3U(m3uContent) {
                 currentChannelMeta.id = `ch_${state.channels.length}`;
                 
                 state.channels.push(currentChannelMeta);
-                
-                // Add to general folder
                 state.channelsByFolder[allFolder].push(currentChannelMeta);
                 
-                // Add folder to unique folders list in order of appearance
                 const folderName = currentChannelMeta.folder;
                 if (!state.folders.includes(folderName)) {
                     state.folders.push(folderName);
                     state.channelsByFolder[folderName] = [];
                 }
                 
-                // Add to specific folder
                 state.channelsByFolder[folderName].push(currentChannelMeta);
-                
-                currentChannelMeta = null; // Reset for next channel
+                currentChannelMeta = null;
             }
         }
     }
 }
 
-// Render Folders Column
 function renderFolders() {
     el.foldersList.innerHTML = '';
     state.folders.forEach((folderName, index) => {
@@ -173,7 +148,6 @@ function renderFolders() {
     });
 }
 
-// Render Channels Column
 function renderChannels(folderName) {
     el.channelsList.innerHTML = '';
     const folderChannels = state.channelsByFolder[folderName] || [];
@@ -185,7 +159,6 @@ function renderChannels(folderName) {
         item.textContent = channel.name;
         item.dataset.index = index;
         
-        // Add playing class if this is the active playing channel
         if (state.playingChannel && state.playingChannel.url === channel.url) {
             item.classList.add('selected');
         }
@@ -194,13 +167,11 @@ function renderChannels(folderName) {
     });
 }
 
-// Select a folder and optionally move focus to channels
 function selectFolder(index, focusChannels = false) {
     state.selectedFolderIndex = index;
     const folderName = state.folders[index];
     el.currentFolderTitle.textContent = folderName;
     
-    // Update folder selected style
     const previousSelected = el.foldersList.querySelector('.selected');
     if (previousSelected) previousSelected.classList.remove('selected');
     
@@ -215,16 +186,13 @@ function selectFolder(index, focusChannels = false) {
     }
 }
 
-// Update focused element visual styles in the DOM
 function updateFocusDOM() {
-    // Remove previous focus classes
     const previousFocused = document.querySelectorAll('.list-item.focused');
     previousFocused.forEach(item => item.classList.remove('focused'));
     
     if (!state.isMenuVisible) return;
     
     let focusedElement = null;
-    
     if (state.activeColumn === 'folders') {
         focusedElement = document.getElementById(`folder-${state.focusedFolderIndex}`);
     } else {
@@ -237,7 +205,6 @@ function updateFocusDOM() {
     }
 }
 
-// Inactivity Timer for Menu
 function resetMenuInactivityTimer() {
     if (state.menuTimeout) {
         clearTimeout(state.menuTimeout);
@@ -247,32 +214,44 @@ function resetMenuInactivityTimer() {
     if (state.isMenuVisible) {
         state.menuTimeout = setTimeout(() => {
             toggleMenu(false);
-        }, 10000); // 10 segundos
+        }, 10000);
     }
 }
 
-// Play Selected Channel
-function playChannel(channel) {
-    if (!channel || !channel.url) return;
-    
-    // Show loading spinner
-    showStatus('Carregando streaming...');
-    
-    // Clean up previous HLS instance
-    if (state.hls) {
-        state.hls.destroy();
-        state.hls = null;
-    }
-    
+function playYouTubeChannel(channel) {
     state.playingChannel = channel;
     localStorage.setItem(STORAGE_LAST_CHANNEL_KEY, JSON.stringify(channel));
     localStorage.setItem('iptv_last_played_folder', state.folders[state.selectedFolderIndex]);
+
+    let videoId = '';
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = channel.url.match(regExp);
+    if (match && match[2].length === 11) {
+        videoId = match[2];
+    }
+
+    hideStatus();
+    showToast(`Abrindo YouTube: ${channel.name}`, channel.folder);
+
+    if (state.isAndroid) {
+        window.location.href = `vnd.youtube://${videoId}`;
+        setTimeout(() => {
+            window.location.href = `https://www.youtube.com/watch?v=${videoId}`;
+        }, 500);
+    } else {
+        window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank');
+    }
+}
+
+// Play Selected Channel (Atualizado para lidar nativamente com arquivos MP4 e HLS)
+function playChannel(channel) {
+    if (!channel || !channel.url) return;
     
-    // Update channels UI selected state
+    state.playingChannel = channel;
+    
     const currentSelected = el.channelsList.querySelector('.selected');
     if (currentSelected) currentSelected.classList.remove('selected');
     
-    // If the played channel is in the currently shown folder, mark it selected
     const currentFolder = state.folders[state.selectedFolderIndex];
     const folderChannels = state.channelsByFolder[currentFolder] || [];
     const channelIndex = folderChannels.findIndex(c => c.url === channel.url);
@@ -281,11 +260,46 @@ function playChannel(channel) {
         const item = document.getElementById(`channel-${channelIndex}`);
         if (item) item.classList.add('selected');
     }
+
+    // Verifica se é YouTube
+    if (channel.url.includes('youtube.com') || channel.url.includes('youtu.be')) {
+        playYouTubeChannel(channel);
+        return;
+    }
+
+    showStatus('Carregando mídia...');
+    localStorage.setItem(STORAGE_LAST_CHANNEL_KEY, JSON.stringify(channel));
+    localStorage.setItem('iptv_last_played_folder', state.folders[state.selectedFolderIndex]);
+
+    const ytContainer = document.getElementById('youtube-iframe-container');
+    if (ytContainer) ytContainer.style.display = 'none';
+    el.video.style.display = 'block';
     
-    // Play video
+    if (state.hls) {
+        state.hls.destroy();
+        state.hls = null;
+    }
+
+    // Se for um link direto de MP4 / MKV / Arquivo Estático
+    if (channel.url.endsWith('.mp4') || channel.url.endsWith('.mkv') || channel.url.endsWith('.webm') || channel.url.includes('.mp4?')) {
+        el.video.src = channel.url;
+        el.video.load();
+        el.video.play()
+            .then(() => {
+                hideStatus();
+                showToast(channel.name, channel.folder);
+            })
+            .catch(err => {
+                console.warn("Autoplay failed:", err);
+                showStatus("Pressione OK para reproduzir.", false);
+            });
+        return;
+    }
+    
+    // Caso contrário, tenta reproduzir via HLS.js (Streams .m3u8)
     if (Hls.isSupported()) {
         const hls = new Hls({
-            maxBufferSize: 0, // Minimize latency
+            maxBufferSize: 0,
             liveSyncDuration: 3,
             enableWorker: true
         });
@@ -300,7 +314,6 @@ function playChannel(channel) {
                     showToast(channel.name, channel.folder);
                 })
                 .catch(err => {
-                    console.warn("Autoplay failed:", err);
                     showStatus("Pressione OK para reproduzir.", false);
                 });
         });
@@ -309,11 +322,9 @@ function playChannel(channel) {
             if (data.fatal) {
                 switch (data.type) {
                     case Hls.ErrorTypes.NETWORK_ERROR:
-                        console.error("HLS network error:", data);
                         hls.startLoad();
                         break;
                     case Hls.ErrorTypes.MEDIA_ERROR:
-                        console.error("HLS media error:", data);
                         hls.recoverMediaError();
                         break;
                     default:
@@ -323,7 +334,6 @@ function playChannel(channel) {
             }
         });
     } else if (el.video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS support (Safari / Android WebView natively)
         el.video.src = channel.url;
         el.video.addEventListener('loadedmetadata', () => {
             el.video.play()
@@ -331,17 +341,15 @@ function playChannel(channel) {
                     hideStatus();
                     showToast(channel.name, channel.folder);
                 })
-                .catch(err => {
-                    console.warn("Autoplay failed:", err);
+                .catch(() => {
                     showStatus("Pressione OK para reproduzir.", false);
                 });
         });
     } else {
-        showStatus('Formato de streaming não suportado por este dispositivo.', false);
+        showStatus('Formato de mídia não suportado por este dispositivo.', false);
     }
 }
 
-// Load Last Played Channel from storage
 function loadLastPlayedChannel() {
     const rawChannel = localStorage.getItem(STORAGE_LAST_CHANNEL_KEY);
     const lastFolder = localStorage.getItem('iptv_last_played_folder');
@@ -349,10 +357,8 @@ function loadLastPlayedChannel() {
     if (rawChannel) {
         try {
             const channel = JSON.parse(rawChannel);
-            // Ensure the channel still exists in our current parsed list
             const exists = state.channels.some(c => c.url === channel.url);
             if (exists) {
-                // Find folder index using the saved folder if it exists, else channel's folder
                 let folderIndex = -1;
                 if (lastFolder && state.folders.includes(lastFolder)) {
                     folderIndex = state.folders.indexOf(lastFolder);
@@ -362,8 +368,6 @@ function loadLastPlayedChannel() {
                 
                 if (folderIndex !== -1) {
                     selectFolder(folderIndex, false);
-                    
-                    // Update focusedChannelIndex in the folder
                     const folderChannels = state.channelsByFolder[state.folders[folderIndex]] || [];
                     const chIdx = folderChannels.findIndex(c => c.url === channel.url);
                     if (chIdx !== -1) {
@@ -378,7 +382,6 @@ function loadLastPlayedChannel() {
         }
     }
     
-    // Fallback: Play first channel of first folder
     if (state.folders.length > 0) {
         selectFolder(0, false);
         const firstFolder = state.folders[0];
@@ -389,7 +392,6 @@ function loadLastPlayedChannel() {
     }
 }
 
-// Toggle Menu Overlay Visibility
 function toggleMenu(forceVisible = null) {
     if (forceVisible !== null) {
         state.isMenuVisible = forceVisible;
@@ -412,7 +414,6 @@ function toggleMenu(forceVisible = null) {
     }
 }
 
-// Zap Channel (when menu is hidden)
 function zapChannel(direction) {
     const currentFolder = state.folders[state.selectedFolderIndex];
     const folderChannels = state.channelsByFolder[currentFolder] || [];
@@ -435,15 +436,12 @@ function zapChannel(direction) {
     playChannel(targetChannel);
 }
 
-// Setup Keyboard and TV D-Pad Remote Navigation
 function setupKeyboardNavigation() {
     document.addEventListener('keydown', (e) => {
-        // Se o menu estiver visível, reinicia a contagem dos 10 segundos a cada toque de tecla
         if (state.isMenuVisible) {
             resetMenuInactivityTimer();
         }
 
-        // If splash screen is active, do nothing else
         if (el.splash.classList.contains('splash-visible') && !state.isAndroid) {
             if (e.key === 'Enter') {
                 el.btnStart.click();
@@ -451,16 +449,15 @@ function setupKeyboardNavigation() {
             return;
         }
 
-        // If menu is hidden, pressing ArrowUp/Down zaps channels, other keys reveal menu
         if (!state.isMenuVisible) {
             if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                zapChannel(1); // Next channel
+                zapChannel(1);
                 return;
             }
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                zapChannel(-1); // Previous channel
+                zapChannel(-1);
                 return;
             }
             
@@ -550,7 +547,6 @@ function setupKeyboardNavigation() {
     });
 }
 
-// Setup Mouse click interactions
 function setupMouseClickHandlers() {
     el.foldersList.addEventListener('click', (e) => {
         resetMenuInactivityTimer();
@@ -590,7 +586,6 @@ function setupMouseClickHandlers() {
     });
 }
 
-// Status Display Helpers
 function showStatus(message, showRetry = false) {
     el.statusMsg.textContent = message;
     el.status.classList.remove('hidden');
@@ -606,7 +601,6 @@ function hideStatus() {
     el.status.classList.add('hidden');
 }
 
-// Toast info banner notification
 let toastTimeout = null;
 function showToast(name, folder) {
     el.toastName.textContent = name;
@@ -619,7 +613,6 @@ function showToast(name, folder) {
     }, 4000);
 }
 
-// Unified back action handler
 function handleBackAction() {
     if (!state.isMenuVisible) {
         toggleMenu(true);
@@ -640,7 +633,6 @@ function handleBackAction() {
     }
 }
 
-// External command receiver interface
 window.AndroidInterface = {
     handleBackButton: function() {
         return handleBackAction();
