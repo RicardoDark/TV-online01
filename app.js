@@ -15,7 +15,9 @@ let state = {
     isMenuVisible: false,
     hls: null,
     isAndroid: false,
-    menuTimeout: null
+    menuTimeout: null,
+    selectedCategory: null, // 'tv' ou 'movies'
+    splashFocusIndex: 0 // 0 para TV, 1 para Filmes
 };
 
 // DOM Elements
@@ -26,7 +28,8 @@ const el = {
     channelsList: document.getElementById('channels-list'),
     currentFolderTitle: document.getElementById('current-folder-title'),
     splash: document.getElementById('splash-screen'),
-    btnStart: document.getElementById('btn-start'),
+    btnTv: document.getElementById('btn-tv'),
+    btnMovies: document.getElementById('btn-movies'),
     status: document.getElementById('status-container'),
     statusMsg: document.getElementById('status-message'),
     toast: document.getElementById('toast-info'),
@@ -41,21 +44,52 @@ window.addEventListener('DOMContentLoaded', () => {
     el.overlay.classList.remove('visible');
     el.overlay.classList.add('hidden');
 
-    if (state.isAndroid) {
-        el.splash.classList.add('hidden');
-        el.splash.classList.remove('splash-visible');
-        startApp();
-    } else {
-        el.btnStart.focus();
-        el.btnStart.classList.add('focused');
-        
-        el.btnStart.addEventListener('click', () => {
-            el.splash.classList.add('hidden');
-            el.splash.classList.remove('splash-visible');
-            startApp();
-        });
-    }
+    setupSplashNavigation();
 });
+
+function setupSplashNavigation() {
+    updateSplashFocus();
+    document.addEventListener('keydown', handleSplashKeys);
+    
+    el.btnTv.addEventListener('click', () => selectCategoryAndStart('tv'));
+    el.btnMovies.addEventListener('click', () => selectCategoryAndStart('movies'));
+}
+
+function updateSplashFocus() {
+    if (state.splashFocusIndex === 0) {
+        el.btnTv.classList.add('focused');
+        el.btnMovies.classList.remove('focused');
+    } else {
+        el.btnMovies.classList.add('focused');
+        el.btnTv.classList.remove('focused');
+    }
+}
+
+function handleSplashKeys(e) {
+    if (!el.splash.classList.contains('hidden')) {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            state.splashFocusIndex = state.splashFocusIndex === 0 ? 1 : 0;
+            updateSplashFocus();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (state.splashFocusIndex === 0) {
+                selectCategoryAndStart('tv');
+            } else {
+                selectCategoryAndStart('movies');
+            }
+        }
+    }
+}
+
+function selectCategoryAndStart(category) {
+    state.selectedCategory = category;
+    document.removeEventListener('keydown', handleSplashKeys);
+    
+    el.splash.classList.add('hidden');
+    el.splash.classList.remove('splash-visible');
+    startApp();
+}
 
 function startApp() {
     showStatus('Carregando lista de canais...');
@@ -69,7 +103,7 @@ function startApp() {
             hideStatus();
             
             if (state.folders.length === 0) {
-                showStatus('Nenhum canal encontrado na lista.', true);
+                showStatus('Nenhum conteúdo encontrado para esta categoria.', true);
                 return;
             }
             
@@ -95,9 +129,8 @@ function parseM3U(m3uContent) {
     let currentChannelMeta = null;
     
     state.channels = [];
-    const allFolder = 'Todos os Canais';
-    state.folders = [allFolder];
-    state.channelsByFolder = { [allFolder]: [] };
+    state.folders = [];
+    state.channelsByFolder = {};
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -120,16 +153,27 @@ function parseM3U(m3uContent) {
                 currentChannelMeta.url = line;
                 currentChannelMeta.id = `ch_${state.channels.length}`;
                 
-                state.channels.push(currentChannelMeta);
-                state.channelsByFolder[allFolder].push(currentChannelMeta);
+                const folderLower = currentChannelMeta.folder.toLowerCase();
+                const isMovieFolder = folderLower.includes('12345678') || folderLower.includes('movie') || folderLower.includes('vod') || currentChannelMeta.url.endsWith('.mp4') || currentChannelMeta.url.endsWith('.mkv');
                 
-                const folderName = currentChannelMeta.folder;
-                if (!state.folders.includes(folderName)) {
-                    state.folders.push(folderName);
-                    state.channelsByFolder[folderName] = [];
+                let keep = false;
+                if (state.selectedCategory === 'movies' && isMovieFolder) {
+                    keep = true;
+                } else if (state.selectedCategory === 'tv' && !isMovieFolder) {
+                    keep = true;
                 }
-                
-                state.channelsByFolder[folderName].push(currentChannelMeta);
+
+                if (keep) {
+                    state.channels.push(currentChannelMeta);
+                    const folderName = currentChannelMeta.folder;
+                    
+                    if (!state.folders.includes(folderName)) {
+                        state.folders.push(folderName);
+                        state.channelsByFolder[folderName] = [];
+                    }
+                    
+                    state.channelsByFolder[folderName].push(currentChannelMeta);
+                }
                 currentChannelMeta = null;
             }
         }
@@ -243,7 +287,6 @@ function playYouTubeChannel(channel) {
     }
 }
 
-// Play Selected Channel (Atualizado para lidar nativamente com arquivos MP4 e HLS)
 function playChannel(channel) {
     if (!channel || !channel.url) return;
     
@@ -261,7 +304,6 @@ function playChannel(channel) {
         if (item) item.classList.add('selected');
     }
 
-    // Verifica se é YouTube
     if (channel.url.includes('youtube.com') || channel.url.includes('youtu.be')) {
         playYouTubeChannel(channel);
         return;
@@ -280,7 +322,6 @@ function playChannel(channel) {
         state.hls = null;
     }
 
-    // Se for um link direto de MP4 / MKV / Arquivo Estático
     if (channel.url.endsWith('.mp4') || channel.url.endsWith('.mkv') || channel.url.endsWith('.webm') || channel.url.includes('.mp4?')) {
         el.video.src = channel.url;
         el.video.load();
@@ -296,7 +337,6 @@ function playChannel(channel) {
         return;
     }
     
-    // Caso contrário, tenta reproduzir via HLS.js (Streams .m3u8)
     if (Hls.isSupported()) {
         const hls = new Hls({
             maxBufferSize: 0,
@@ -440,13 +480,6 @@ function setupKeyboardNavigation() {
     document.addEventListener('keydown', (e) => {
         if (state.isMenuVisible) {
             resetMenuInactivityTimer();
-        }
-
-        if (el.splash.classList.contains('splash-visible') && !state.isAndroid) {
-            if (e.key === 'Enter') {
-                el.btnStart.click();
-            }
-            return;
         }
 
         if (!state.isMenuVisible) {
@@ -623,13 +656,8 @@ function handleBackAction() {
         updateFocusDOM();
         return true;
     } else {
-        if (state.isAndroid && window.Android && typeof window.Android.exitApp === 'function') {
-            window.Android.exitApp();
-            return true;
-        } else {
-            toggleMenu(false);
-            return true;
-        }
+        window.location.reload();
+        return true;
     }
 }
 
