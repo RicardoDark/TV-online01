@@ -27,6 +27,9 @@ body, html {
     font-family: var(--font-sans);
     user-select: none;
     -webkit-user-select: none;
+    /* Força o layout a basear o desenho em 1920px de largura e escala proporcional */
+    min-width: 1920px;
+    zoom: 50%; /* Ajusta a proporção base para celulares caso o viewport do HTML não restrinja sozinho */
 }
 
 /* Fullscreen Background Video */
@@ -286,7 +289,7 @@ body, html {
     outline: none;
     transform: scale(1.05);
     background: var(--focus-gradient);
-    box-shadow: 0 0 20px rgba(0, 229, 255, 0.6);
+    box-shadow: 0 `0 20px rgba(0, 229, 255, 0.6);
 }
 
 /* Loading & Status Spinner */
