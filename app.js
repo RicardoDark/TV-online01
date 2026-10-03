@@ -154,7 +154,11 @@ function parseM3U(m3uContent) {
                 currentChannelMeta.id = `ch_${state.channels.length}`;
                 
                 const folderLower = currentChannelMeta.folder.toLowerCase();
-                const isMovieFolder = folderLower.includes('12345678') || folderLower.includes('movie') || folderLower.includes('vod') || currentChannelMeta.url.endsWith('.mp4') || currentChannelMeta.url.endsWith('.mkv');
+                const isMovieFolder = folderLower.includes('movie Anime') || 
+				folderLower.includes('123456') || 
+				folderLower.includes('Nadja do Amanhã') || folderLower.includes('movie') || folderLower.includes('vod') || 
+				folderLower.includes('Thumbelina') || 
+				currentChannelMeta.url.endsWith('.mp4') || currentChannelMeta.url.endsWith('.mkv');
                 
                 let keep = false;
                 if (state.selectedCategory === 'movies' && isMovieFolder) {
