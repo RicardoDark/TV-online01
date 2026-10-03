@@ -29,7 +29,7 @@ body, html {
     -webkit-user-select: none;
     /* Força o layout a basear o desenho em 1920px de largura e escala proporcional */
     min-width: 1920px;
-    zoom: 100%; /* Ajusta a proporção base para celulares caso o viewport do HTML não restrinja sozinho */
+    zoom: 80%; /* Ajusta a proporção base para celulares caso o viewport do HTML não restrinja sozinho */
 }
 
 /* Fullscreen Background Video */
