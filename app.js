@@ -156,6 +156,7 @@ function parseM3U(m3uContent) {
                 const folderLower = currentChannelMeta.folder.toLowerCase();
                 const isMovieFolder = folderLower.includes('movie Anime') || 
 				folderLower.includes('123456') ||
+				folderLower.includes('Solty Rei') ||
 				folderLower.includes('Steel Angel Kurumi 2') ||
 				folderLower.includes('Auto da Compadecida') ||
 				folderLower.includes('Barom One') ||
