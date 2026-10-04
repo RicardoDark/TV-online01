@@ -1462,7 +1462,7 @@ const LK_LAYOUT = {
     ])
 };
 const LK_NAMES = { 'login-user': 'Usuário', 'login-pass': 'Senha', 'login-custom': 'Link do servidor' };
-const lk = { open: false, inp: null, sym: false, shift: false, r: 1, c: 0, box: null, els: [] };
+const lk = { open: false, inp: null, sym: false, shift: false, r: 1, c: 0, box: null, els: [], bar: false };
 
 function lkRows() { return LK_LAYOUT[lk.sym ? 'sym' : 'abc']; }
 
@@ -1474,31 +1474,51 @@ function lkOpen(inp) {
     lk.shift = false;
     lk.r = 1;
     lk.c = 0;
+    lk.bar = false;
     const box = document.createElement('div');
     box.id = 'lk-modal';
     box.innerHTML =
         '<div class="lk-box">' +
           '<div class="lk-label">' + (LK_NAMES[inp.id] || 'Digite') + '</div>' +
-          '<div class="lk-input" id="lk-input"></div>' +
+          '<div class="lk-inputrow">' +
+            '<div class="lk-input" id="lk-input"></div>' +
+            '<div class="lk-pastebtn" id="lk-pastebtn" title="Colar">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>' +
+              '<span>Colar</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="lk-note" id="lk-note"></div>' +
+          '<input id="lk-paste" class="lk-pastein" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Toque e segure aqui e escolha Colar">' +
           '<div class="lk-grid" id="lk-grid"></div>' +
         '</div>';
     document.body.appendChild(box);
     lk.box = box;
     box.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('#lk-pastebtn')) { lk.bar = true; lkMark(); lkPaste(); return; }
         const t = e.target.closest ? e.target.closest('.lk-key') : null;
         if (!t) return;
+        lk.bar = false;
         lk.r = parseInt(t.getAttribute('data-r'), 10);
         lk.c = parseInt(t.getAttribute('data-c'), 10);
         lkMark();
         lkPress(lkRows()[lk.r][lk.c]);
     });
     window.addEventListener('keydown', lkKeys, true);   // captura: bloqueia o resto do app enquanto aberto
+    window.addEventListener('paste', lkOnPaste, true);   // Ctrl+V no teclado do computador
+    const pin2 = box.querySelector('#lk-paste');
+    pin2.addEventListener('input', function () {
+        const t = pin2.value;
+        pin2.value = '';
+        lkFallbackHide();
+        lkInsert(t);
+    });
     lkRender();
 }
 
 function lkClose() {
     if (!lk.open) return;
     window.removeEventListener('keydown', lkKeys, true);
+    window.removeEventListener('paste', lkOnPaste, true);
     if (lk.box && lk.box.parentNode) lk.box.parentNode.removeChild(lk.box);
     const inp = lk.inp;
     lk.open = false;
@@ -1531,8 +1551,61 @@ function lkRender() {
 function lkMark() {
     for (let i = 0; i < lk.els.length; i++) {
         const e = lk.els[i];
-        const on = parseInt(e.getAttribute('data-r'), 10) === lk.r && parseInt(e.getAttribute('data-c'), 10) === lk.c;
+        const on = !lk.bar && parseInt(e.getAttribute('data-r'), 10) === lk.r && parseInt(e.getAttribute('data-c'), 10) === lk.c;
         e.classList.toggle('lfocus', on);
+    }
+    const pb = document.getElementById('lk-pastebtn');
+    if (pb) pb.classList.toggle('lfocus', lk.bar);
+}
+
+/* ---- colar texto copiado ---- */
+function lkNote(msg) {
+    const n = document.getElementById('lk-note');
+    if (n) n.textContent = msg || '';
+}
+
+function lkInsert(t) {
+    t = String(t == null ? '' : t).replace(/[\r\n\t]+/g, '');
+    if (!t) { lkNote('Não há nada copiado para colar.'); return; }
+    lkNote('');
+    lkType(t);
+}
+
+function lkOnPaste(e) {
+    if (!lk.open) return;
+    if (e.target && e.target.id === 'lk-paste') return;   // o campo de reserva trata o próprio colar
+    e.preventDefault();
+    e.stopPropagation();
+    let t = '';
+    try { t = (e.clipboardData || window.clipboardData).getData('text'); } catch (err) {}
+    lkInsert(t);
+}
+
+function lkFallbackShow() {
+    const f = document.getElementById('lk-paste');
+    if (!f) return;
+    f.classList.add('show');
+    lkNote('Toque e segure no campo abaixo e escolha Colar.');
+    try { f.focus({ preventScroll: true }); } catch (e) {}
+}
+
+function lkFallbackHide() {
+    const f = document.getElementById('lk-paste');
+    if (!f) return;
+    f.classList.remove('show');
+    try { f.blur(); } catch (e) {}
+}
+
+function lkPaste() {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(function (t) {
+            if (!lk.open) return;
+            lkInsert(t);
+        }, function () {
+            if (lk.open) lkFallbackShow();   // o aparelho não deixou ler a área de transferência
+        });
+    } else {
+        lkFallbackShow();
     }
 }
 
@@ -1578,7 +1651,8 @@ function lkMove(dr, dc) {
         c = Math.max(0, Math.min(rows[r].length - 1, c + dc));
     } else {
         const nr = r + dr;
-        if (nr < 0 || nr >= rows.length) return;
+        if (nr < 0) { lk.bar = true; lkMark(); return; }
+        if (nr >= rows.length) return;
         const cur = rows[r][c];
         const center = cur.c0 + cur.s / 2;
         let best = 0, bd = 1e9;
@@ -1596,19 +1670,26 @@ function lkKeys(e) {
     if (!lk.open) return;
     e.stopImmediatePropagation();
     const k = e.key;
-    if (k === 'Escape' || k === 'GoBack' || k === 'BrowserBack') { e.preventDefault(); lkClose(); return; }
+    const fb = document.getElementById('lk-paste');
+    const fbOpen = !!(fb && fb.classList.contains('show'));
+    if (k === 'Escape' || k === 'GoBack' || k === 'BrowserBack') { e.preventDefault(); if (fbOpen) { lkFallbackHide(); lkNote(''); } else lkClose(); return; }
     if (k === 'Backspace') {
         e.preventDefault();
         if (e.repeat && lk.inp && !lk.inp.value) return;
         if (lk.inp && lk.inp.value) lkPress({ t: 'back' }); else lkClose();
         return;
     }
+    if (lk.bar) {
+        if (k === 'Enter') { e.preventDefault(); if (!e.repeat) lkPaste(); return; }
+        if (k === 'ArrowDown') { e.preventDefault(); lk.bar = false; lkMark(); return; }
+        if (k === 'ArrowUp' || k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); return; }
+    }
     if (k === 'Enter') { e.preventDefault(); if (!e.repeat) lkPress(lkRows()[lk.r][lk.c]); return; }
     if (k === 'ArrowLeft') { e.preventDefault(); lkMove(0, -1); return; }
     if (k === 'ArrowRight') { e.preventDefault(); lkMove(0, 1); return; }
     if (k === 'ArrowUp') { e.preventDefault(); lkMove(-1, 0); return; }
     if (k === 'ArrowDown') { e.preventDefault(); lkMove(1, 0); return; }
-    if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); lkType(k); }   // teclado físico (computador)
+    if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!fbOpen) lkType(k); }   // teclado físico (computador)
 }
 
 function handleLoginKeys(e) {
