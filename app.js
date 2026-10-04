@@ -1789,7 +1789,9 @@ function loadStream(url, opts) {
                 ' hls:' + (window.Hls ? (Hls.isSupported() ? 'ok' : 'semMSE') : 'ausente') +
                 ' net:' + v.networkState + ' rs:' + v.readyState +
                 ' rede:' + rede;
-            if (o.onFail) o.onFail(diag);
+            const dica = (rede === 'BLOQUEADA' && location.protocol === 'https:')
+                ? 'Provável bloqueio: página https abrindo vídeo http. ' : '';
+            if (o.onFail) o.onFail(dica + diag);
         });
     }
     function playNow() {
