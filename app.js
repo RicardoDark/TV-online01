@@ -1,9 +1,9 @@
 /* ====================================================================
-   TELA FIXA 1920x1080
-   O app é desenhado sempre em 1920x1080 e redimensionado inteiro para caber
+   TELA FIXA 1280x720
+   O app é desenhado sempre em 1280x720 (para mudar o tamanho de tudo, altere só os números abaixo e no style.css) e redimensionado inteiro para caber
    no aparelho (celular, tablet, TV Box). Sobra faixa preta se a proporção for diferente.
    ==================================================================== */
-const DESIGN_W = 1920, DESIGN_H = 1080;
+const DESIGN_W = 1280, DESIGN_H = 720;
 const stage = { s: 1, x: 0, y: 0 };
 function fitStage() {
     const w = window.innerWidth || document.documentElement.clientWidth || DESIGN_W;
@@ -11,8 +11,8 @@ function fitStage() {
     // escala pelo lado que "encosta" primeiro; o outro lado é esticado para preencher a tela
     let s = Math.min(w / DESIGN_W, h / DESIGN_H);
     // limite do esticamento (telas muito estranhas ainda ganham faixa preta)
-    const sw = Math.min(w / s, 2560);
-    const sh = Math.min(h / s, 1200);
+    const sw = Math.min(w / s, 1707);
+    const sh = Math.min(h / s, 800);
     s = Math.min(w / sw, h / sh);
     stage.s = s;
     stage.x = Math.max(0, (w - sw * s) / 2);
@@ -707,77 +707,20 @@ function playChannel(channel) {
     if (ytContainer) ytContainer.style.display = 'none';
     el.video.style.display = 'block';
     
-    if (state.hls) {
-        state.hls.destroy();
-        state.hls = null;
-    }
-
-    if (channel.url.endsWith('.mp4') || channel.url.endsWith('.mkv') || channel.url.endsWith('.webm') || channel.url.includes('.mp4?')) {
-        el.video.src = channel.url;
-        el.video.load();
-        el.video.play()
-            .then(() => {
-                hideStatus();
-                showToast(channel.name, channel.folder);
-            })
-            .catch(err => {
-                console.warn("Autoplay failed:", err);
-                showStatus("Pressione OK para reproduzir.", false);
-            });
-        return;
-    }
-    
-    if (window.Hls && Hls.isSupported()) {
-        const hls = new Hls({
-            maxBufferSize: 0,
-            liveSyncDuration: 3,
-            enableWorker: true
-        });
-        state.hls = hls;
-        hls.loadSource(toHlsUrl(channel.url));
-        hls.attachMedia(el.video);
-        
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            el.video.play()
-                .then(() => {
-                    hideStatus();
-                    showToast(channel.name, channel.folder);
-                })
-                .catch(err => {
-                    showStatus("Pressione OK para reproduzir.", false);
-                });
-        });
-        
-        hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-                switch (data.type) {
-                    case Hls.ErrorTypes.NETWORK_ERROR:
-                        hls.startLoad();
-                        break;
-                    case Hls.ErrorTypes.MEDIA_ERROR:
-                        hls.recoverMediaError();
-                        break;
-                    default:
-                        showStatus('Erro ao carregar canal. Tente novamente.', false);
-                        break;
-                }
-            }
-        });
-    } else if (el.video.canPlayType('application/vnd.apple.mpegurl')) {
-        el.video.src = channel.url;
-        el.video.addEventListener('loadedmetadata', () => {
-            el.video.play()
-                .then(() => {
-                    hideStatus();
-                    showToast(channel.name, channel.folder);
-                })
-                .catch(() => {
-                    showStatus("Pressione OK para reproduzir.", false);
-                });
-        });
-    } else {
-        showStatus('Formato de mídia não suportado por este dispositivo.', false);
-    }
+    loadStream(toHlsUrl(channel.url), {
+        live: true,
+        hlsConfig: { maxBufferSize: 0, liveSyncDuration: 3 },
+        onPlaying: function () {
+            hideStatus();
+            showToast(channel.name, channel.folder);
+        },
+        onBlocked: function () {
+            showStatus('Pressione OK para reproduzir.', false);
+        },
+        onFail: function (why) {
+            showStatus('Não foi possível abrir este canal' + (why ? ' (' + why + ')' : '') + '. Tente outro.', false);
+        }
+    });
 }
 
 function loadLastPlayedChannel() {
@@ -980,6 +923,14 @@ function setupKeyboardNavigation() {
 }
 
 function setupMouseClickHandlers() {
+    // Botão "Voltar" na TV (aparece com mouse/toque, some quando usa o teclado ou controle)
+    document.body.classList.add('tv-on');
+    ['mousemove', 'mousedown', 'touchstart'].forEach(function (ev) {
+        document.addEventListener(ev, function () { document.body.classList.add('use-pointer'); }, { passive: true });
+    });
+    document.addEventListener('keydown', function () { document.body.classList.remove('use-pointer'); });
+    document.getElementById('vod-backbtn').addEventListener('click', function () { handleBackAction(); });
+
     el.foldersList.addEventListener('click', (e) => {
         resetMenuInactivityTimer();
         const item = e.target.closest('.list-item');
@@ -1736,6 +1687,148 @@ function vodMsg(text, ms) {
     m.classList.remove('hidden');
     clearTimeout(vodMsgTimer);
     vodMsgTimer = setTimeout(function () { m.classList.add('hidden'); }, ms || 5000);
+}
+
+/* ====================================================================
+   REPRODUÇÃO ROBUSTA: hls.js -> (se falhar) player nativo do aparelho
+   Corrige canais/filmes que ficavam "carregando" no Android / LDPlayer.
+   ==================================================================== */
+const HLS_CDNS = [
+    'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js'
+];
+let hlsQueue = null;
+let hlsGaveUp = false;
+
+// Garante que o hls.js existe; se o arquivo local hls.min.js não foi carregado, baixa de um CDN
+function ensureHls(cb) {
+    if (window.Hls || hlsGaveUp) { cb(); return; }
+    if (hlsQueue) { hlsQueue.push(cb); return; }
+    hlsQueue = [cb];
+    let i = 0;
+    function done() {
+        if (!window.Hls) hlsGaveUp = true;
+        const q = hlsQueue; hlsQueue = null;
+        q.forEach(function (f) { try { f(); } catch (e) { console.error(e); } });
+    }
+    function next() {
+        if (window.Hls || i >= HLS_CDNS.length) { done(); return; }
+        const sc = document.createElement('script');
+        sc.src = HLS_CDNS[i++];
+        sc.onload = function () { if (window.Hls) done(); else next(); };
+        sc.onerror = next;
+        document.head.appendChild(sc);
+    }
+    next();
+}
+
+let streamToken = 0;
+let streamWatch = null;
+
+function destroyHls() {
+    if (state.hls) { try { state.hls.destroy(); } catch (e) {} state.hls = null; }
+}
+
+function stopStream() {
+    streamToken++;
+    clearTimeout(streamWatch);
+    destroyHls();
+}
+
+// Abre uma mídia. opts: live, hlsConfig, onPlaying, onBlocked, onFail
+function loadStream(url, opts) {
+    const o = opts || {};
+    const v = el.video;
+    const token = ++streamToken;
+    clearTimeout(streamWatch);
+    destroyHls();
+
+    let usingNative = false, finished = false, failed = false, blocked = false, lastErr = '';
+    const stale = function () { return token !== streamToken; };
+
+    const hlsLike = o.live
+        ? !/\.(mp4|mkv|webm|avi|mov)(\?|$)/i.test(url)
+        : /\.m3u8(\?|$)/i.test(url);
+
+    function ok() {
+        if (stale() || finished) return;
+        finished = true;
+        clearTimeout(streamWatch);
+        if (o.onPlaying) o.onPlaying();
+    }
+    function fail(why) {
+        if (stale() || finished || failed) return;
+        failed = true;
+        clearTimeout(streamWatch);
+        console.warn('Falha ao reproduzir:', url, why);
+        if (o.onFail) o.onFail(why || lastErr);
+    }
+    function playNow() {
+        try {
+            const p = v.play();
+            if (p && p.catch) p.catch(function (err) {
+                if (stale() || finished) return;
+                if (err && err.name === 'NotAllowedError') {
+                    blocked = true;
+                    clearTimeout(streamWatch);
+                    if (o.onBlocked) o.onBlocked();
+                }
+            });
+        } catch (e) {}
+    }
+    function arm(ms) {
+        clearTimeout(streamWatch);
+        streamWatch = setTimeout(function () {
+            if (stale() || finished || blocked) return;
+            if (hlsLike && !usingNative) goNative('tempo esgotado (hls)');
+            else fail('tempo esgotado');
+        }, ms);
+    }
+    function goNative(why) {
+        if (stale() || finished || failed) return;
+        if (why) lastErr = why;
+        if (usingNative) { fail(lastErr); return; }
+        usingNative = true;
+        destroyHls();
+        v.src = url;
+        v.load();
+        playNow();
+        arm(hlsLike ? 25000 : 40000);
+    }
+
+    v.onplaying = ok;
+    v.onerror = function () {
+        if (stale() || finished) return;
+        lastErr = 'video:' + (v.error ? v.error.code : '?');
+        if (usingNative) fail(lastErr); else goNative(lastErr);
+    };
+
+    if (!hlsLike) { goNative(); return; }
+
+    ensureHls(function () {
+        if (stale()) return;
+        if (!(window.Hls && Hls.isSupported())) { goNative('sem hls.js'); return; }
+        const cfg = { enableWorker: !state.isAndroid, lowLatencyMode: false, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 2, fragLoadingMaxRetry: 3 };
+        if (o.hlsConfig) for (const k in o.hlsConfig) cfg[k] = o.hlsConfig[k];
+        const hls = new Hls(cfg);
+        state.hls = hls;
+        let netTries = 0, mediaTries = 0;
+        hls.on(Hls.Events.MANIFEST_PARSED, playNow);
+        hls.on(Hls.Events.ERROR, function (ev, d) {
+            if (stale()) return;
+            lastErr = (d.type || '') + '/' + (d.details || '');
+            if (!d.fatal) return;
+            if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                if (finished || netTries++ < 1) { try { hls.startLoad(); } catch (e) {} return; }
+            } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                if (finished || mediaTries++ < 1) { try { hls.recoverMediaError(); } catch (e) {} return; }
+            }
+            if (!finished) goNative(lastErr);
+        });
+        hls.loadSource(url);
+        hls.attachMedia(v);
+        arm(25000);
+    });
 }
 
 // Troca .ts por .m3u8 em links de canal ao vivo (o player só entende HLS)
@@ -2578,7 +2671,7 @@ function positionWin() {
     if (!w) return;
     const r = w.getBoundingClientRect();
     const vis = r.bottom > 0 && r.top < window.innerHeight;
-    // r vem em pixels da tela real; converte para a tela fixa 1920x1080
+    // r vem em pixels da tela real; converte para a tela fixa 1280x720
     const k = stage.s || 1;
     const css = 'left:' + ((r.left - stage.x) / k) + 'px;top:' + ((r.top - stage.y) / k) + 'px;width:' + (r.width / k) + 'px;height:' + (r.height / k) + 'px;' + (vis ? '' : 'visibility:hidden;');
     v.style.cssText = css;
@@ -2599,30 +2692,16 @@ function vodPlayUrl(url) {
 
 function vodLoad(url, startAt) {
     vod.resumeAt = startAt || 0;
-    if (state.hls) { state.hls.destroy(); state.hls = null; }
-    const v = el.video;
     vodSpin(true);
-    if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: true });
-        state.hls = hls;
-        hls.loadSource(url);
-        hls.attachMedia(v);
-        hls.on(Hls.Events.MANIFEST_PARSED, function () { v.play().catch(function () {}); });
-        let tries = 0;
-        hls.on(Hls.Events.ERROR, function (ev, d) {
-            if (!d.fatal) return;
-            tries++;
-            if (tries > 4) { vodSpin(false); vodMsg('Não foi possível reproduzir este título.', 6000); return; }
-            if (d.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-            else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-            else { vodSpin(false); vodMsg('Não foi possível reproduzir este título.', 6000); }
-        });
-    } else {
-        v.src = url;
-        v.load();
-        const pr = v.play();
-        if (pr && pr.catch) pr.catch(function () {});
-    }
+    loadStream(url, {
+        live: false,
+        onPlaying: function () { vodSpin(false); },
+        onBlocked: function () { vodSpin(false); },
+        onFail: function (why) {
+            vodSpin(false);
+            vodMsg('Não foi possível reproduzir este título' + (why ? ' (' + why + ')' : '') + '. O formato pode não ser compatível com este aparelho.', 7000);
+        }
+    });
 }
 
 function onVodMeta() {
@@ -2651,7 +2730,7 @@ function vodStop() {
     saveProgress(true);
     const v = el.video;
     v.pause();
-    if (state.hls) { state.hls.destroy(); state.hls = null; }
+    stopStream();
     v.removeAttribute('src');
     v.load();
     vod.playUrl = null;
