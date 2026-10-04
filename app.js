@@ -6,6 +6,21 @@ const M3U_URL = 'https://raw.githubusercontent.com/RicardoDark/iptv01/refs/heads
 const DEFAULT_USER = '10203040';
 const DEFAULT_PASS = '40506070';
 const DEFAULT_SERVER = 'https://cinepulse.rtvplay.workers.dev/';
+
+// Servidores que aparecem na tela de login. A pessoa só vê o NOME; o link fica escondido.
+// Para adicionar o Servidor 4 (ou mais), é só colocar o link aqui.
+const SERVERS = [
+    { name: 'Servidor 1', url: 'https://cinepulse.rtvplay.workers.dev/' },
+    { name: 'Servidor 2', url: 'https://power.rtvplay.workers.dev/' },
+    { name: 'Servidor 3', url: 'https://p2player.rtvplay.workers.dev/' }
+    // , { name: 'Servidor 4', url: 'COLOQUE_O_LINK_AQUI' }
+].filter(function (s) { return s.url && s.url.indexOf('COLOQUE') === -1; });
+
+// Bloqueio adulto: qualquer pasta/categoria/título com "XXX" fica bloqueado até digitar a senha
+const ADULT_PIN = '1010';
+const ADULT_FOLDER = 'XXX Adulto';
+const LOCK_ICON = ' \uD83D\uDD12';
+let adultUnlocked = false;   // volta a bloquear sempre que o app é aberto de novo
 const LOGIN_KEY = 'iptv_login_data';     // últimos dados digitados (preenche a tela de login)
 const SESSION_KEY = 'iptv_session';       // login ativo: enquanto existir, o app abre direto na tela inicial
 const STORAGE_LAST_CHANNEL_KEY = 'iptv_last_played_channel';
@@ -467,6 +482,7 @@ function parseM3UAll(text) {
                 meta.id = 'ch_' + out.total;
                 out.total++;
                 const kind = classifyEntry(meta);
+                if (isAdultText(meta.name) && !isAdultText(meta.folder)) meta.folder = ADULT_FOLDER;
                 if (kind === 'movie') out.movies.push(meta);
                 else if (kind === 'series') out.series.push(meta);
                 else out.tv.push(meta);
@@ -504,7 +520,7 @@ function renderFolders() {
         const item = document.createElement('div');
         item.className = 'list-item';
         item.id = `folder-${index}`;
-        item.textContent = folderName;
+        item.textContent = folderName + (isAdultLocked(folderName) ? LOCK_ICON : '');
         item.dataset.index = index;
         el.foldersList.appendChild(item);
     });
@@ -512,6 +528,13 @@ function renderFolders() {
 
 function renderChannels(folderName) {
     el.channelsList.innerHTML = '';
+    if (isAdultLocked(folderName)) {
+        const lockHint = document.createElement('div');
+        lockHint.className = 'list-hint';
+        lockHint.textContent = 'Conteúdo adulto bloqueado. Aperte OK e digite a senha.';
+        el.channelsList.appendChild(lockHint);
+        return;
+    }
     const folderChannels = state.channelsByFolder[folderName] || [];
     
     folderChannels.forEach((channel, index) => {
@@ -722,7 +745,7 @@ function loadLastPlayedChannel() {
     if (rawChannel) {
         try {
             const channel = JSON.parse(rawChannel);
-            const exists = state.channels.some(c => c.url === channel.url);
+            const exists = state.channels.some(c => c.url === channel.url) && !isAdultLocked(channel.folder);
             if (exists) {
                 let folderIndex = -1;
                 if (lastFolder && state.folders.includes(lastFolder)) {
@@ -748,7 +771,7 @@ function loadLastPlayedChannel() {
     }
     
     if (state.folders.length > 0) {
-        let fi = state.folders.findIndex(f => (state.channelsByFolder[f] || []).length > 0);
+        let fi = state.folders.findIndex(f => !isAdultLocked(f) && (state.channelsByFolder[f] || []).length > 0);
         if (fi === -1) fi = 0;
         selectFolder(fi, false);
         const firstFolderChannels = state.channelsByFolder[state.folders[fi]];
@@ -782,6 +805,7 @@ function toggleMenu(forceVisible = null) {
 
 function zapChannel(direction) {
     const currentFolder = state.folders[state.selectedFolderIndex];
+    if (isAdultLocked(currentFolder)) return;
     const folderChannels = state.channelsByFolder[currentFolder] || [];
     if (folderChannels.length === 0) return;
     
@@ -830,8 +854,21 @@ function setupKeyboardNavigation() {
         }
 
         const folderCount = state.folders.length;
-        const currentFolderChannels = state.channelsByFolder[state.folders[state.selectedFolderIndex]] || [];
+        const currentFolderChannels = isAdultLocked(state.folders[state.selectedFolderIndex]) ? [] : (state.channelsByFolder[state.folders[state.selectedFolderIndex]] || []);
         const channelCount = currentFolderChannels.length;
+
+        // Pasta adulta bloqueada: OK ou seta para a direita pede a senha
+        if (state.activeColumn === 'folders' && (e.key === 'Enter' || e.key === 'ArrowRight') &&
+            isAdultLocked(state.folders[state.focusedFolderIndex])) {
+            e.preventDefault();
+            const fi = state.focusedFolderIndex;
+            askAdultPin(function () {
+                renderFolders();
+                selectFolder(fi, true);
+                updateFocusDOM();
+            });
+            return;
+        }
 
         switch (e.key) {
             case 'ArrowUp':
@@ -909,6 +946,13 @@ function setupMouseClickHandlers() {
         state.activeColumn = 'folders';
         selectFolder(index, false);
         updateFocusDOM();
+        if (isAdultLocked(state.folders[index])) {
+            askAdultPin(function () {
+                renderFolders();
+                selectFolder(index, false);
+                updateFocusDOM();
+            });
+        }
     });
 
     el.channelsList.addEventListener('click', (e) => {
@@ -977,6 +1021,7 @@ function showToast(name, folder) {
 }
 
 function handleBackAction() {
+    if (pin.open) { pinClose(false); return true; }
     // Tela de login ou tela inicial: o Voltar sai do app
     if (loginVisible()) return false;
     if (el.splash.classList.contains('splash-visible')) return false;
@@ -1003,7 +1048,7 @@ function handleBackAction() {
    - Depois de entrar uma vez, o app lembra e abre direto na tela inicial.
    - Para trocar de conta, use o botão "Sair" no canto superior direito.
    ==================================================================== */
-const login = { items: [], idx: 0, busy: false };
+const login = { items: [], idx: 0, busy: false, server: 0 };
 
 function loginVisible() {
     const s = document.getElementById('login-screen');
@@ -1072,6 +1117,117 @@ function loadM3U(url) {
         });
 }
 
+
+/* ====================================================================
+   BLOQUEIO ADULTO (senha numérica na tela, funciona com o controle remoto)
+   ==================================================================== */
+const pin = { open: false, value: '', idx: 4, onOk: null, onCancel: null, box: null, keys: [] };
+const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'APAGAR', '0', 'SAIR'];
+
+function isAdultText(s) { return /xxx/i.test(String(s || '')); }
+function isAdultLocked(name) { return !adultUnlocked && isAdultText(name); }
+
+function askAdultPin(onOk, onCancel) {
+    if (adultUnlocked) { if (onOk) onOk(); return; }
+    if (pin.open) return;
+    pin.open = true;
+    pin.value = '';
+    pin.idx = 4;
+    pin.onOk = onOk || null;
+    pin.onCancel = onCancel || null;
+
+    const box = document.createElement('div');
+    box.id = 'pin-modal';
+    box.innerHTML =
+        '<div class="pin-box">' +
+          '<div class="pin-title">Conteúdo adulto</div>' +
+          '<div class="pin-sub">Digite a senha para desbloquear</div>' +
+          '<div class="pin-dots" id="pin-dots"></div>' +
+          '<div class="pin-error" id="pin-error"></div>' +
+          '<div class="pin-pad">' +
+            PIN_KEYS.map(function (k, i) {
+                return '<div class="pin-key' + (k.length > 1 ? ' small' : '') + '" data-i="' + i + '">' + k + '</div>';
+            }).join('') +
+          '</div>' +
+        '</div>';
+    document.body.appendChild(box);
+    pin.box = box;
+    pin.keys = box.querySelectorAll('.pin-key');
+    box.addEventListener('click', function (e) {
+        const t = e.target.closest ? e.target.closest('.pin-key') : null;
+        if (!t) return;
+        pin.idx = parseInt(t.getAttribute('data-i'), 10);
+        pinFocus();
+        pinPress(PIN_KEYS[pin.idx]);
+    });
+    window.addEventListener('keydown', pinKeys, true);   // captura: bloqueia o resto do app enquanto aberto
+    pinDots();
+    pinFocus();
+}
+
+function pinClose(ok) {
+    if (!pin.open) return;
+    window.removeEventListener('keydown', pinKeys, true);
+    if (pin.box && pin.box.parentNode) pin.box.parentNode.removeChild(pin.box);
+    pin.open = false;
+    pin.box = null;
+    const cb = ok ? pin.onOk : pin.onCancel;
+    if (ok) adultUnlocked = true;
+    pin.onOk = pin.onCancel = null;
+    if (cb) cb();
+}
+
+function pinDots() {
+    const d = document.getElementById('pin-dots');
+    if (!d) return;
+    let s = '';
+    for (let i = 0; i < 4; i++) s += '<span class="pin-dot' + (i < pin.value.length ? ' on' : '') + '"></span>';
+    d.innerHTML = s;
+}
+
+function pinFocus() {
+    for (let i = 0; i < pin.keys.length; i++) pin.keys[i].classList.toggle('pfocus', i === pin.idx);
+}
+
+function pinPress(k) {
+    const err = document.getElementById('pin-error');
+    if (k === 'SAIR') { pinClose(false); return; }
+    if (k === 'APAGAR') { pin.value = pin.value.slice(0, -1); if (err) err.textContent = ''; pinDots(); return; }
+    if (pin.value.length >= 4) return;
+    pin.value += k;
+    if (err) err.textContent = '';
+    pinDots();
+    if (pin.value.length === 4) {
+        setTimeout(function () {
+            if (!pin.open) return;
+            if (pin.value === ADULT_PIN) { pinClose(true); return; }
+            pin.value = '';
+            pinDots();
+            if (err) err.textContent = 'Senha incorreta';
+        }, 150);
+    }
+}
+
+function pinKeys(e) {
+    if (!pin.open) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    if (e.repeat) return;
+    const k = e.key;
+    if (/^[0-9]$/.test(k)) { pinPress(k); return; }
+    if (k === 'Escape' || k === 'GoBack' || k === 'BrowserBack') { pinClose(false); return; }
+    if (k === 'Backspace') { if (pin.value.length) pinPress('APAGAR'); else pinClose(false); return; }
+    if (k === 'Enter') { pinPress(PIN_KEYS[pin.idx]); return; }
+    let r = Math.floor(pin.idx / 3), c = pin.idx % 3;
+    if (k === 'ArrowLeft') c = (c + 2) % 3;
+    else if (k === 'ArrowRight') c = (c + 1) % 3;
+    else if (k === 'ArrowUp') r = (r + 3) % 4;
+    else if (k === 'ArrowDown') r = (r + 1) % 4;
+    else return;
+    pin.idx = r * 3 + c;
+    pinFocus();
+}
+
 /* ---------- tela de login ---------- */
 function setupLogin() {
     const fUser = document.getElementById('login-user');
@@ -1084,7 +1240,14 @@ function setupLogin() {
     try { saved = JSON.parse(localStorage.getItem(LOGIN_KEY)); } catch (e) {}
     fUser.value = (saved && saved.user) || DEFAULT_USER;
     fPass.value = (saved && saved.pass) || DEFAULT_PASS;
-    fLink.value = (saved && saved.link) || DEFAULT_SERVER;
+    let sIdx = 0;
+    if (saved && saved.link) {
+        for (let i = 0; i < SERVERS.length; i++) {
+            if (normalizeServer(SERVERS[i].url) === normalizeServer(saved.link)) { sIdx = i; break; }
+        }
+    }
+    login.server = sIdx;
+    renderServerPick();
 
     login.items = [fUser, fPass, fLink, btnLogin, btnFree];
     login.idx = 3; // começa no botão Entrar
@@ -1095,7 +1258,9 @@ function setupLogin() {
 
     // Campos ficam "somente leitura" até tocar ou apertar OK, assim o teclado
     // do TV Box não abre sozinho enquanto navega com o controle.
-    [fUser, fPass, fLink].forEach(function (inp) {
+    fLink.addEventListener('click', function () { changeServer(1); });
+
+    [fUser, fPass].forEach(function (inp) {
         ['mousedown', 'touchstart'].forEach(function (ev) {
             inp.addEventListener(ev, function () { inp.readOnly = false; }, { passive: true });
         });
@@ -1137,6 +1302,12 @@ function handleLoginKeys(e) {
     const isInput = cur && cur.tagName === 'INPUT';
     const editing = isInput && !cur.readOnly;
 
+    // Campo "Servidor": esquerda/direita/OK trocam entre Servidor 1, 2, 3...
+    if (login.idx === 2) {
+        if (e.key === 'ArrowLeft') { e.preventDefault(); changeServer(-1); return; }
+        if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); changeServer(1); return; }
+    }
+
     if (e.key === 'ArrowDown') {
         e.preventDefault();
         loginStopEdit(cur);
@@ -1160,6 +1331,17 @@ function handleLoginKeys(e) {
             cur.click();
         }
     }
+}
+
+function renderServerPick() {
+    const n = document.getElementById('login-server-name');
+    if (n && SERVERS.length) n.textContent = SERVERS[login.server].name;
+}
+
+function changeServer(dir) {
+    if (!SERVERS.length) return;
+    login.server = (login.server + dir + SERVERS.length) % SERVERS.length;
+    renderServerPick();
 }
 
 function loginError(msg) {
@@ -1235,9 +1417,10 @@ async function doLogin() {
     if (login.busy) return;
     const user = document.getElementById('login-user').value.trim();
     const pass = document.getElementById('login-pass').value.trim();
-    const link = document.getElementById('login-link').value.trim();
+    const link = SERVERS.length ? SERVERS[login.server].url : '';
 
-    if (!user || !pass || !link) { loginError('Preencha usuário, senha e link.'); return; }
+    if (!user || !pass) { loginError('Preencha usuário e senha.'); return; }
+    if (!link) { loginError('Nenhum servidor configurado.'); return; }
     const base = normalizeServer(link);
 
     loginError('');
@@ -1631,6 +1814,9 @@ function buildVodCards(sets) {
         }
     });
 
+    vod.cards.forEach(function (c) {
+        if (isAdultText(c.title) && !isAdultText(c.group)) c.group = ADULT_FOLDER;
+    });
     vod.folders = [];
     vod.cards.forEach(function (c) { if (vod.folders.indexOf(c.group) === -1) vod.folders.push(c.group); });
     vod.cats = [{ id: '__all', label: 'Todos' }, { id: '__fav', label: 'Favoritos' }]
@@ -1638,9 +1824,11 @@ function buildVodCards(sets) {
 }
 
 function getCatList(id) {
-    if (id === '__all') return vod.cards;
-    if (id === '__fav') return lsGet(favKey(), []).map(function (k) { return vod.byKey[k]; }).filter(Boolean);
-    if (id === '__hist') return lsGet(histKey(), []).map(function (k) { return vod.byKey[k]; }).filter(Boolean);
+    const open = function (c) { return !isAdultLocked(c.group); };
+    if (id === '__all') return adultUnlocked ? vod.cards : vod.cards.filter(open);
+    if (id === '__fav') return lsGet(favKey(), []).map(function (k) { return vod.byKey[k]; }).filter(Boolean).filter(open);
+    if (id === '__hist') return lsGet(histKey(), []).map(function (k) { return vod.byKey[k]; }).filter(Boolean).filter(open);
+    if (isAdultLocked(id)) return [];
     return vod.cards.filter(function (c) { return c.group === id; });
 }
 
@@ -1733,7 +1921,7 @@ function vodShowHome(zone, idx) {
         '<div class="vod-home">' +
           '<div class="vod-cats" id="vod-cats">' +
             vod.cats.map(function (c, i) {
-                return '<div class="vod-cat" data-z="cats" data-i="' + i + '">' + esc(c.label) + '</div>';
+                return '<div class="vod-cat" data-z="cats" data-i="' + i + '">' + esc(c.label) + (isAdultLocked(c.id) ? LOCK_ICON : '') + '</div>';
             }).join('') +
           '</div>' +
           '<div class="vod-main">' +
@@ -1753,6 +1941,21 @@ function vodShowHome(zone, idx) {
     vod.zone = zone;
     vod.idx = idx;
     applyFocus();
+}
+
+function vodUnlockCat() {
+    askAdultPin(function () {
+        const items = document.querySelectorAll('.vod-cat');
+        vod.cats.forEach(function (c, i) {
+            if (items[i]) items[i].textContent = c.label + (isAdultLocked(c.id) ? LOCK_ICON : '');
+        });
+        vod.list = getCatList(vod.catId);
+        vod.shown = GRID_STEP;
+        renderGrid();
+        markCat();
+        if (vod.list.length) { vod.zone = 'grid'; vod.idx = 0; } else { vod.zone = 'cats'; vod.idx = vod.catIndex; }
+        applyFocus();
+    });
 }
 
 function markCat() {
@@ -1786,6 +1989,7 @@ function renderGrid() {
 
 function emptyText() {
     if (vod.view === 'search') return vod.query ? 'Nenhum resultado para essa busca.' : 'Digite no teclado para pesquisar.';
+    if (isAdultLocked(vod.catId)) return 'Conteúdo adulto bloqueado. Aperte OK e digite a senha.';
     if (vod.catId === '__fav') return 'Você ainda não tem favoritos. Abra um título e escolha Favorito.';
     if (vod.catId === '__hist') return 'Seu histórico está vazio.';
     return 'Nada por aqui.';
@@ -1889,6 +2093,7 @@ function runSearch() {
     } else {
         const words = q.split(/\s+/);
         vod.list = vod.cards.filter(function (c) {
+            if (isAdultLocked(c.group)) return false;
             const t = norm(c.title);
             for (let i = 0; i < words.length; i++) if (t.indexOf(words[i]) === -1) return false;
             return true;
@@ -1963,6 +2168,13 @@ function homeKeys(e) {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].indexOf(k) === -1) return;
     e.preventDefault();
     const nc = vod.cats.length;
+
+    // Categoria adulta bloqueada: OK ou seta para a direita pede a senha
+    if (vod.zone === 'cats' && (k === 'ArrowRight' || k === 'Enter') && isAdultLocked(vod.catId)) {
+        flushCat();
+        vodUnlockCat();
+        return;
+    }
 
     if (vod.zone === 'cats') {
         if (k === 'ArrowUp') setCat((vod.catIndex - 1 + nc) % nc);
@@ -2667,7 +2879,7 @@ function vodClick(e) {
 
     if (vod.view === 'home') {
         vod.zone = z; vod.idx = i;
-        if (z === 'cats') { setCat(i); flushCat(); }
+        if (z === 'cats') { setCat(i); flushCat(); if (isAdultLocked(vod.catId)) vodUnlockCat(); }
         else { applyFocus(); homeKeys(FAKE_ENTER); }
     } else if (vod.view === 'search') {
         vod.zone = z; vod.idx = i;

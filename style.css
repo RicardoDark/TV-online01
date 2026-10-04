@@ -1072,3 +1072,72 @@ html.has-session #login-screen { display: none !important; }
     transition: opacity 0.25s ease;
     pointer-events: none;
 }
+
+
+/* ================================================================
+   Campo "Servidor" (seletor com setas) na tela de login
+   ================================================================ */
+.login-select {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.login-select .ls-name { flex: 1; text-align: center; font-weight: 600; }
+.login-select .ls-arrow { color: rgba(255, 255, 255, 0.55); font-size: 0.9rem; padding: 0 4px; }
+.login-select:focus .ls-arrow { color: #fff; }
+
+/* ================================================================
+   Bloqueio adulto: pedido de senha
+   ================================================================ */
+#pin-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.82);
+}
+.pin-box {
+    width: 340px;
+    max-width: 92%;
+    max-height: 96%;
+    overflow-y: auto;
+    padding: 24px 26px 26px;
+    border-radius: 22px;
+    text-align: center;
+    background: rgba(22, 22, 30, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+}
+.pin-title { font-size: 1.5rem; font-weight: 800; color: #fff; }
+.pin-sub { font-size: 0.95rem; color: var(--text-secondary); margin: 4px 0 14px; }
+.pin-dots { display: flex; justify-content: center; gap: 14px; height: 22px; margin-bottom: 6px; }
+.pin-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.5); }
+.pin-dot.on { background: #fff; border-color: #fff; }
+.pin-error { min-height: 24px; font-size: 0.95rem; font-weight: 600; color: #ff7b7b; margin-bottom: 6px; }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pin-key {
+    height: 54px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.18);
+    transition: all 0.12s ease;
+}
+.pin-key.small { font-size: 0.85rem; }
+.pin-key.pfocus {
+    border-color: #fff;
+    background: rgba(255, 255, 255, 0.22);
+    transform: scale(1.06);
+    box-shadow: 0 0 22px rgba(0, 229, 255, 0.8);
+}

@@ -55,8 +55,12 @@
             <label class="login-label" for="login-pass">Senha</label>
             <input id="login-pass" class="login-field" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
 
-            <label class="login-label" for="login-link">Link do servidor</label>
-            <input id="login-link" class="login-field" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
+            <label class="login-label">Servidor</label>
+            <div id="login-link" class="login-field login-select" tabindex="0" role="button">
+                <span class="ls-arrow">&#9664;</span>
+                <span id="login-server-name" class="ls-name"></span>
+                <span class="ls-arrow">&#9654;</span>
+            </div>
 
             <div id="login-error" class="login-error hidden"></div>
 
