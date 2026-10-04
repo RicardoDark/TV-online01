@@ -41,7 +41,7 @@ const DEFAULT_SERVER = 'https://cinepulse.rtvplay.workers.dev/';
 const SERVERS = [
     { name: 'Servidor 1', url: 'https://cinepulse.rtvplay.workers.dev/' },
     { name: 'Servidor 2', url: 'https://power.rtvplay.workers.dev/' },
-    { name: 'Servidor 3', url: 'https://app01.rtvplay.workers.dev/' }
+    { name: 'Servidor 3', url: 'http://fasttv.sbs' }
     // , { name: 'Servidor 4', url: 'COLOQUE_O_LINK_AQUI' }
 ].filter(function (s) { return s.url && s.url.indexOf('COLOQUE') === -1; });
 
