@@ -1722,6 +1722,24 @@ function ensureHls(cb) {
     next();
 }
 
+// Testa se o aparelho consegue ao menos alcançar o endereço do vídeo (mostra BLOQUEADA se o Android barrou)
+function probeUrl(url, cb) {
+    if (typeof fetch !== 'function') { cb('?'); return; }
+    let done = false, t = null;
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    function fin(r) {
+        if (done) return;
+        done = true; clearTimeout(t);
+        if (ctrl) { try { ctrl.abort(); } catch (e) {} }
+        cb(r);
+    }
+    t = setTimeout(function () { fin('lenta'); }, 6000);
+    try {
+        fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctrl ? ctrl.signal : undefined })
+            .then(function () { fin('ok'); }, function () { fin('BLOQUEADA'); });
+    } catch (e) { fin('?'); }
+}
+
 let streamToken = 0;
 let streamWatch = null;
 
@@ -1761,7 +1779,18 @@ function loadStream(url, opts) {
         failed = true;
         clearTimeout(streamWatch);
         console.warn('Falha ao reproduzir:', url, why);
-        if (o.onFail) o.onFail(why || lastErr);
+        // Diagnóstico: mostra na tela o motivo real para descobrir o problema no Android
+        probeUrl(url, function (rede) {
+            if (stale()) return;
+            const m = /^(https?):/i.exec(url);
+            const diag = (why || lastErr || '?') +
+                ' | pág:' + String(location.protocol).replace(':', '') +
+                ' stream:' + (m ? m[1].toLowerCase() : '?') +
+                ' hls:' + (window.Hls ? (Hls.isSupported() ? 'ok' : 'semMSE') : 'ausente') +
+                ' net:' + v.networkState + ' rs:' + v.readyState +
+                ' rede:' + rede;
+            if (o.onFail) o.onFail(diag);
+        });
     }
     function playNow() {
         try {
