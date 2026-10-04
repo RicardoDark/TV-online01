@@ -114,6 +114,34 @@
         <div class="toast-channel-group" id="toast-channel-group">Grupo do Canal</div>
     </div>
 
+    <!-- Filmes e Séries -->
+    <div id="vod-root"></div>
+    <div id="vod-spin" class="vod-spin hidden"><div class="spinner"></div></div>
+
+    <!-- Player em tela cheia (Filmes e Séries) -->
+    <div id="vod-player-ui">
+        <div class="vod-pui-layer">
+            <div class="vod-pui-cam">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7l-6 5 6 5V7z"></path><rect x="2" y="6" width="14" height="12" rx="2" ry="2"></rect></svg>
+            </div>
+            <div class="vod-pui-bar">
+                <img id="vod-pui-thumb" class="vod-pui-thumb" alt="">
+                <div class="vod-pui-mid">
+                    <div class="vod-pui-title" id="vod-pui-title"></div>
+                    <div class="vod-pui-times"><span id="vod-pui-cur">00:00</span><span id="vod-pui-dur">00:00</span></div>
+                    <div class="vod-pui-track"><div id="vod-pui-fill"></div></div>
+                    <div class="vod-pui-hints">
+                        <span class="vod-hint"><i>&#9664;&#9654;</i>Avançar/Voltar</span>
+                        <span class="vod-hint"><i>&#9660;</i>Configurações</span>
+                        <span class="vod-hint"><i>OK</i>Play/Pause</span>
+                    </div>
+                </div>
+            </div>
+            <div class="vod-settings hidden" id="vod-settings"></div>
+        </div>
+        <div class="vod-pui-center" id="vod-pui-center"></div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>

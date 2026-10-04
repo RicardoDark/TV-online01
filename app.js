@@ -119,6 +119,11 @@ function startApp() {
                 return;
             }
             
+            if (state.selectedCategory === 'movies' || state.selectedCategory === 'series') {
+                startVod();
+                return;
+            }
+
             renderFolders();
             selectFolder(0, false);
             loadLastPlayedChannel();
@@ -153,6 +158,8 @@ function parseM3U(m3uContent) {
             const groupMatch = line.match(/group-title="([^"]+)"/);
             const folderName = groupMatch ? groupMatch[1].trim() : 'Outros';
             currentChannelMeta.folder = folderName;
+            const logoMatch = line.match(/tvg-logo="([^"]*)"/);
+            currentChannelMeta.logo = logoMatch ? logoMatch[1].trim() : '';
             
             const commaIndex = line.lastIndexOf(',');
             if (commaIndex !== -1) {
@@ -673,6 +680,7 @@ function showToast(name, folder) {
 }
 
 function handleBackAction() {
+    if (state.vodActive) return vodBack();
     if (!state.isMenuVisible) {
         toggleMenu(true);
         return true;
@@ -692,3 +700,956 @@ window.AndroidInterface = {
         return handleBackAction();
     }
 };
+
+/* ====================================================================
+   FILMES E SÉRIES (VOD)
+   Tudo navegável pelo controle remoto: setas, OK (Enter) e Voltar.
+   ==================================================================== */
+
+// Opcional: coloque aqui sua chave gratuita do TMDB (themoviedb.org) para
+// carregar sinopse e nota automaticamente. Sem chave, a sinopse não aparece.
+const TMDB_API_KEY = '';
+
+const LS_PROGRESS = 'iptv_vod_progress';
+const LS_LASTEP = 'iptv_vod_lastep';
+const GRID_COLS = 4;
+const GRID_STEP = 40;
+const KB_COLS = 6;
+const KB_ROWS = [
+    ['A','B','C','D','E','F'],
+    ['G','H','I','J','K','L'],
+    ['M','N','O','P','Q','R'],
+    ['S','T','U','V','W','X'],
+    ['Y','Z','1','2','3','4'],
+    ['5','6','7','8','9','0'],
+    ['ESPAÇO','APAGAR','LIMPAR']
+];
+const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
+
+const vod = {
+    kind: 'movies',
+    cards: [], byKey: {}, folders: [], cats: [],
+    catIndex: 0, catId: '__all', catTimer: null,
+    list: [], shown: 0,
+    view: 'home', zone: 'cats', idx: 0,
+    stack: [],
+    card: null, season: 1, epUrl: null, related: [],
+    query: '', kbR: 0, kbC: 0,
+    metaCache: {},
+    fullscreen: false, settingsOpen: false, settingsRow: 0,
+    speedIdx: 1, fitCover: false,
+    uiTimer: null, iconTimer: null, lastSave: 0, seekRepeat: 0, resumeAt: 0, playUrl: null
+};
+
+const ICON_SEARCH = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>';
+const ICON_CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+const ICON_FS = '<svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>';
+const ICON_HEART = '<svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>';
+const ICON_PAUSE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5"></circle><line x1="9.5" y1="8" x2="9.5" y2="16"></line><line x1="14.5" y1="8" x2="14.5" y2="16"></line></svg>';
+const ICON_PLAY = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>';
+
+/* ---------- utilidades ---------- */
+function $v(id) { return document.getElementById(id); }
+function lsGet(k, d) {
+    try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; }
+}
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function favKey() { return 'iptv_vod_favs_' + vod.kind; }
+function histKey() { return 'iptv_vod_hist_' + vod.kind; }
+function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+function norm(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+function fmtTime(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    sec = Math.floor(sec);
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const p = function (n) { return String(n).padStart(2, '0'); };
+    return h > 0 ? (p(h) + ':' + p(m) + ':' + p(s)) : (p(m) + ':' + p(s));
+}
+function isFav(card) { return lsGet(favKey(), []).indexOf(card.key) !== -1; }
+function toggleFav(card) {
+    let f = lsGet(favKey(), []);
+    const i = f.indexOf(card.key);
+    if (i === -1) f.unshift(card.key); else f.splice(i, 1);
+    lsSet(favKey(), f);
+}
+function addHistory(card) {
+    let h = lsGet(histKey(), []).filter(function (k) { return k !== card.key; });
+    h.unshift(card.key);
+    lsSet(histKey(), h.slice(0, 60));
+}
+
+/* ---------- montagem dos cartões a partir da lista M3U ---------- */
+function buildVodCards() {
+    vod.kind = state.selectedCategory;
+    vod.cards = [];
+    vod.byKey = {};
+
+    if (vod.kind === 'movies') {
+        state.channels.forEach(function (ch) {
+            const c = { key: ch.url, title: ch.name, logo: ch.logo || '', kind: 'movie', group: ch.folder, url: ch.url };
+            vod.cards.push(c);
+            vod.byKey[c.key] = c;
+        });
+    } else {
+        const map = {};
+        state.channels.forEach(function (ch) {
+            const m = ch.name.match(/^(.*?)[\s\-_.]*S(\d{1,2})\s*E(\d{1,4})/i);
+            const title = (m && m[1].trim()) ? m[1].trim() : ch.name;
+            const season = m ? parseInt(m[2], 10) : 1;
+            const ep = m ? parseInt(m[3], 10) : 1;
+            const key = 'S:' + ch.folder + '|' + title;
+            if (!map[key]) {
+                map[key] = { key: key, title: title, logo: '', kind: 'series', group: ch.folder, eps: [] };
+                vod.cards.push(map[key]);
+                vod.byKey[key] = map[key];
+            }
+            if (!map[key].logo && ch.logo) map[key].logo = ch.logo;
+            map[key].eps.push({ name: ch.name, url: ch.url, season: season, ep: ep });
+        });
+        vod.cards.forEach(function (c) {
+            c.eps.sort(function (a, b) { return (a.season - b.season) || (a.ep - b.ep); });
+        });
+    }
+
+    vod.folders = [];
+    vod.cards.forEach(function (c) { if (vod.folders.indexOf(c.group) === -1) vod.folders.push(c.group); });
+    vod.cats = [{ id: '__all', label: 'Todos' }, { id: '__fav', label: 'Favoritos' }]
+        .concat(vod.folders.map(function (f) { return { id: f, label: f }; }));
+}
+
+function getCatList(id) {
+    if (id === '__all') return vod.cards;
+    if (id === '__fav') return lsGet(favKey(), []).map(function (k) { return vod.byKey[k]; }).filter(Boolean);
+    if (id === '__hist') return lsGet(histKey(), []).map(function (k) { return vod.byKey[k]; }).filter(Boolean);
+    return vod.cards.filter(function (c) { return c.group === id; });
+}
+
+function catLabel() {
+    if (vod.view === 'search') return 'Resultados';
+    if (vod.catId === '__hist') return 'Histórico';
+    const c = vod.cats[vod.catIndex];
+    return c ? c.label : '';
+}
+
+/* ---------- início ---------- */
+function startVod() {
+    buildVodCards();
+    hideStatus();
+    if (!vod.cards.length) {
+        showStatus('Nenhum conteúdo encontrado para esta categoria.', true);
+        return;
+    }
+    state.vodActive = true;
+    el.overlay.classList.add('hidden');
+    el.overlay.classList.remove('visible');
+    $v('vod-root').classList.add('active');
+
+    const v = el.video;
+    v.addEventListener('timeupdate', onVodTime);
+    v.addEventListener('loadedmetadata', onVodMeta);
+    v.addEventListener('waiting', function () { vodSpin(true); });
+    v.addEventListener('loadstart', function () { vodSpin(true); });
+    v.addEventListener('playing', function () { vodSpin(false); flashIcon(false); });
+    v.addEventListener('canplay', function () { vodSpin(false); });
+    v.addEventListener('pause', function () { if (vod.fullscreen) flashIcon(true); });
+    v.addEventListener('ended', onVodEnded);
+    v.addEventListener('error', function () { vodSpin(false); });
+
+    document.addEventListener('keydown', vodKeys);
+    document.addEventListener('keyup', function (e) {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') vod.seekRepeat = 0;
+    });
+    window.addEventListener('resize', positionWin);
+
+    vod.catId = '__all';
+    vod.catIndex = 0;
+    vodShowHome('cats', 0);
+}
+
+/* ---------- tela principal (categorias + capas) ---------- */
+function vodShowHome(zone, idx) {
+    vod.view = 'home';
+    vod.list = getCatList(vod.catId);
+    vod.shown = (zone === 'grid') ? Math.max(GRID_STEP, Math.ceil((idx + 1) / GRID_STEP) * GRID_STEP + GRID_STEP) : GRID_STEP;
+
+    $v('vod-root').innerHTML =
+        '<div class="vod-home">' +
+          '<div class="vod-cats" id="vod-cats">' +
+            vod.cats.map(function (c, i) {
+                return '<div class="vod-cat" data-z="cats" data-i="' + i + '">' + esc(c.label) + '</div>';
+            }).join('') +
+          '</div>' +
+          '<div class="vod-main">' +
+            '<div class="vod-top">' +
+              '<div class="vod-btn" data-z="top" data-i="0">' + ICON_SEARCH + 'Pesquisar</div>' +
+              '<div class="vod-btn" data-z="top" data-i="1">' + ICON_CLOCK + 'Histórico</div>' +
+              '<div class="vod-spacer"></div>' +
+              '<div class="vod-catlabel" id="vod-catlabel"></div>' +
+              '<div class="vod-total" id="vod-total"></div>' +
+            '</div>' +
+            '<div class="vod-grid" id="vod-grid"></div>' +
+          '</div>' +
+        '</div>';
+
+    renderGrid();
+    markCat();
+    vod.zone = zone;
+    vod.idx = idx;
+    applyFocus();
+}
+
+function markCat() {
+    const items = document.querySelectorAll('.vod-cat');
+    for (let i = 0; i < items.length; i++) {
+        items[i].classList.toggle('sel', vod.catId !== '__hist' && i === vod.catIndex);
+    }
+}
+
+function cardHtml(c, i, z) {
+    return '<div class="vod-card" data-z="' + z + '" data-i="' + i + '">' +
+        '<div class="vod-poster">' +
+          '<span class="vod-ph">' + esc(c.title) + '</span>' +
+          (c.logo ? '<img src="' + esc(c.logo) + '" onerror="this.parentNode.removeChild(this)">' : '') +
+        '</div>' +
+        '<div class="vod-card-title">' + esc(c.title) + '</div>' +
+      '</div>';
+}
+
+function renderGrid() {
+    const g = $v('vod-grid');
+    if (!g) return;
+    const slice = vod.list.slice(0, vod.shown);
+    g.innerHTML = slice.length
+        ? slice.map(function (c, i) { return cardHtml(c, i, 'grid'); }).join('')
+        : '<div class="vod-empty">' + emptyText() + '</div>';
+    const t = $v('vod-total'); if (t) t.textContent = 'Total: ' + vod.list.length;
+    const l = $v('vod-catlabel'); if (l) l.textContent = catLabel();
+}
+
+function emptyText() {
+    if (vod.view === 'search') return vod.query ? 'Nenhum resultado para essa busca.' : 'Digite no teclado para pesquisar.';
+    if (vod.catId === '__fav') return 'Você ainda não tem favoritos. Abra um título e escolha Favorito.';
+    if (vod.catId === '__hist') return 'Seu histórico está vazio.';
+    return 'Nada por aqui.';
+}
+
+function ensureShown(i) {
+    if (i >= vod.shown - GRID_COLS * 2 && vod.shown < vod.list.length) {
+        const g = $v('vod-grid');
+        const from = g.children.length;
+        vod.shown = Math.min(vod.list.length, vod.shown + GRID_STEP);
+        g.insertAdjacentHTML('beforeend', vod.list.slice(from, vod.shown).map(function (c, k) {
+            return cardHtml(c, from + k, 'grid');
+        }).join(''));
+    }
+}
+
+function setCat(i) {
+    vod.catIndex = i;
+    vod.catId = vod.cats[i].id;
+    vod.idx = i;
+    applyFocus();
+    markCat();
+    clearTimeout(vod.catTimer);
+    vod.catTimer = setTimeout(flushCat, 150);
+}
+function flushCat() {
+    if (vod.catTimer === null) return;
+    clearTimeout(vod.catTimer);
+    vod.catTimer = null;
+    vod.list = getCatList(vod.catId);
+    vod.shown = GRID_STEP;
+    renderGrid();
+}
+
+function applyFocus() {
+    const old = document.querySelectorAll('.vfocus');
+    for (let i = 0; i < old.length; i++) old[i].classList.remove('vfocus');
+    el.video.classList.remove('winfocus');
+
+    const t = document.querySelector('#vod-root [data-z="' + vod.zone + '"][data-i="' + vod.idx + '"]');
+    if (t) {
+        t.classList.add('vfocus');
+        if (vod.view === 'detail' && (vod.zone === 'video' || vod.zone === 'act')) {
+            const d = document.querySelector('.vod-detail');
+            if (d) d.scrollTop = 0;
+        } else {
+            t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+    }
+    if (vod.view === 'detail') {
+        if (vod.zone === 'video') el.video.classList.add('winfocus');
+        positionWin();
+    }
+}
+
+/* ---------- pesquisa com teclado virtual ---------- */
+function vodShowSearch(zone, idx) {
+    vod.view = 'search';
+    vod.shown = GRID_STEP;
+    $v('vod-root').innerHTML =
+        '<div class="vod-search">' +
+          '<div class="vod-kbpanel">' +
+            '<div class="vod-input" id="vod-input"></div>' +
+            '<div class="vod-kb">' +
+              KB_ROWS.map(function (row, r) {
+                  return row.map(function (k, c) {
+                      return '<div class="vod-key' + (r === KB_ROWS.length - 1 ? ' wide' : '') + '" data-z="kb" data-i="' + (r * KB_COLS + c) + '">' + k + '</div>';
+                  }).join('');
+              }).join('') +
+            '</div>' +
+          '</div>' +
+          '<div class="vod-main">' +
+            '<div class="vod-top">' +
+              '<div class="vod-catlabel" id="vod-catlabel"></div>' +
+              '<div class="vod-spacer"></div>' +
+              '<div class="vod-total" id="vod-total"></div>' +
+            '</div>' +
+            '<div class="vod-grid" id="vod-grid"></div>' +
+          '</div>' +
+        '</div>';
+    runSearch();
+    vod.zone = zone || 'kb';
+    vod.idx = (idx == null) ? 0 : idx;
+    if (vod.zone === 'kb') { vod.kbR = Math.floor(vod.idx / KB_COLS); vod.kbC = vod.idx % KB_COLS; }
+    applyFocus();
+}
+
+function runSearch() {
+    const inp = $v('vod-input');
+    if (inp) {
+        inp.innerHTML = ICON_SEARCH.replace('<svg', '<svg style="width:32px;height:32px;margin-right:14px;stroke:#fff;fill:none;stroke-width:2;flex-shrink:0"') +
+            (vod.query ? '<span>' + esc(vod.query) + '</span>' : '<span class="ph">Pesquisar</span>');
+    }
+    const q = norm(vod.query).trim();
+    if (!q) {
+        vod.list = [];
+    } else {
+        const words = q.split(/\s+/);
+        vod.list = vod.cards.filter(function (c) {
+            const t = norm(c.title);
+            for (let i = 0; i < words.length; i++) if (t.indexOf(words[i]) === -1) return false;
+            return true;
+        }).slice(0, 400);
+    }
+    vod.shown = GRID_STEP;
+    renderGrid();
+}
+
+function kbPress(label) {
+    if (label === 'ESPAÇO') { if (vod.query && vod.query.slice(-1) !== ' ') vod.query += ' '; }
+    else if (label === 'APAGAR') vod.query = vod.query.slice(0, -1);
+    else if (label === 'LIMPAR') vod.query = '';
+    else vod.query += label.toLowerCase();
+    runSearch();
+    applyFocus();
+}
+
+function searchKeys(e) {
+    const k = e.key;
+    if (k.length === 1 && /[a-z0-9 ]/i.test(k)) { e.preventDefault(); kbPress(k === ' ' ? 'ESPAÇO' : k.toUpperCase()); return; }
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].indexOf(k) === -1) return;
+    e.preventDefault();
+
+    if (vod.zone === 'kb') {
+        let r = vod.kbR, c = vod.kbC;
+        const last = KB_ROWS.length - 1;
+        if (k === 'ArrowLeft') { if (c > 0) c--; }
+        else if (k === 'ArrowRight') {
+            if (c < KB_ROWS[r].length - 1) c++;
+            else if (vod.list.length) { vod.zone = 'grid'; vod.idx = 0; applyFocus(); return; }
+        }
+        else if (k === 'ArrowUp') { if (r > 0) { if (r === last) c = Math.min(KB_COLS - 1, c * 2); r--; } }
+        else if (k === 'ArrowDown') { if (r < last) { r++; if (r === last) c = Math.min(2, Math.floor(c / 2)); } }
+        else if (k === 'Enter') { kbPress(KB_ROWS[r][c]); return; }
+        vod.kbR = r; vod.kbC = c; vod.idx = r * KB_COLS + c;
+        applyFocus();
+    } else {
+        gridNav(k, function () { vod.zone = 'kb'; vod.idx = vod.kbR * KB_COLS + vod.kbC; applyFocus(); }, null);
+    }
+}
+
+/* navegação comum da grade de capas (home e pesquisa) */
+function gridNav(k, onLeftEdge, onTopEdge) {
+    const n = vod.list.length;
+    let i = vod.idx;
+    if (k === 'ArrowLeft') {
+        if (i % GRID_COLS === 0) { onLeftEdge(); return; }
+        i--;
+    } else if (k === 'ArrowRight') {
+        if (i % GRID_COLS < GRID_COLS - 1 && i + 1 < n) i++;
+    } else if (k === 'ArrowUp') {
+        if (i < GRID_COLS) { if (onTopEdge) onTopEdge(); return; }
+        i -= GRID_COLS;
+    } else if (k === 'ArrowDown') {
+        ensureShown(i + GRID_COLS);
+        if (i + GRID_COLS < n) i += GRID_COLS;
+        else if (Math.floor(i / GRID_COLS) < Math.floor((n - 1) / GRID_COLS)) i = n - 1;
+    } else if (k === 'Enter') {
+        const card = vod.list[i];
+        if (card) vodOpenDetail(card, true);
+        return;
+    }
+    vod.idx = i;
+    ensureShown(i);
+    applyFocus();
+}
+
+/* ---------- teclas da tela principal ---------- */
+function homeKeys(e) {
+    const k = e.key;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].indexOf(k) === -1) return;
+    e.preventDefault();
+    const nc = vod.cats.length;
+
+    if (vod.zone === 'cats') {
+        if (k === 'ArrowUp') setCat((vod.catIndex - 1 + nc) % nc);
+        else if (k === 'ArrowDown') setCat((vod.catIndex + 1) % nc);
+        else if (k === 'ArrowRight' || k === 'Enter') {
+            flushCat();
+            if (vod.list.length) { vod.zone = 'grid'; vod.idx = 0; applyFocus(); }
+        }
+    } else if (vod.zone === 'top') {
+        if (k === 'ArrowLeft') {
+            if (vod.idx === 0) { vod.zone = 'cats'; vod.idx = vod.catIndex; } else vod.idx = 0;
+            applyFocus();
+        } else if (k === 'ArrowRight') { vod.idx = 1; applyFocus(); }
+        else if (k === 'ArrowDown') {
+            flushCat();
+            if (vod.list.length) { vod.zone = 'grid'; vod.idx = 0; applyFocus(); }
+        } else if (k === 'Enter') {
+            if (vod.idx === 0) {
+                vod.stack.push(captureView());
+                vod.query = '';
+                vodShowSearch('kb', 0);
+            } else {
+                flushCat();
+                vod.catId = '__hist';
+                vod.list = getCatList('__hist');
+                vod.shown = GRID_STEP;
+                renderGrid();
+                markCat();
+                if (vod.list.length) { vod.zone = 'grid'; vod.idx = 0; } else { vod.zone = 'top'; vod.idx = 1; }
+                applyFocus();
+            }
+        }
+    } else {
+        gridNav(k,
+            function () { vod.zone = 'cats'; vod.idx = vod.catIndex; applyFocus(); },
+            function () { vod.zone = 'top'; vod.idx = 0; applyFocus(); });
+    }
+}
+
+/* ---------- navegação entre telas ---------- */
+function captureView() {
+    return { view: vod.view, catId: vod.catId, catIndex: vod.catIndex, zone: vod.zone, idx: vod.idx,
+             query: vod.query, kbR: vod.kbR, kbC: vod.kbC, card: vod.card };
+}
+function restoreView(s) {
+    vod.query = s.query || '';
+    vod.kbR = s.kbR || 0; vod.kbC = s.kbC || 0;
+    if (s.view === 'home') {
+        vod.catId = s.catId; vod.catIndex = s.catIndex;
+        vodShowHome(s.zone, s.idx);
+    } else if (s.view === 'search') {
+        vodShowSearch(s.zone, s.idx);
+    } else if (s.view === 'detail') {
+        vodOpenDetail(s.card, false);
+    }
+}
+
+function vodBack() {
+    if (vod.fullscreen) {
+        if (vod.settingsOpen) closeSettings(); else exitFullscreen();
+        return true;
+    }
+    if (vod.view === 'detail') {
+        vodStop();
+        setWinMode(false);
+        const s = vod.stack.pop();
+        if (s) restoreView(s); else { vod.catId = '__all'; vod.catIndex = 0; vodShowHome('cats', 0); }
+        return true;
+    }
+    if (vod.view === 'search') {
+        const s = vod.stack.pop();
+        if (s) restoreView(s); else vodShowHome('cats', 0);
+        return true;
+    }
+    if (vod.zone !== 'cats') {
+        vod.zone = 'cats'; vod.idx = vod.catIndex; applyFocus();
+        return true;
+    }
+    window.location.reload();
+    return true;
+}
+
+function vodKeys(e) {
+    if (!state.vodActive) return;
+    if (vod.fullscreen) { playerKeys(e); return; }
+    if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack') {
+        e.preventDefault();
+        vodBack();
+        return;
+    }
+    if (vod.view === 'home') homeKeys(e);
+    else if (vod.view === 'search') searchKeys(e);
+    else if (vod.view === 'detail') detailKeys(e);
+}
+
+/* ---------- tela do filme / série ---------- */
+function seasonsList() {
+    const s = [];
+    vod.card.eps.forEach(function (e) { if (s.indexOf(e.season) === -1) s.push(e.season); });
+    return s;
+}
+function epsOfSeason() {
+    return vod.card.eps.filter(function (e) { return e.season === vod.season; });
+}
+function currentEp() {
+    return vod.card.eps.filter(function (e) { return e.url === vod.epUrl; })[0];
+}
+
+function computeRelated(card) {
+    const grp = vod.cards.filter(function (c) { return c.group === card.group; });
+    const i = grp.indexOf(card);
+    const out = [];
+    for (let k = 1; k < grp.length && out.length < 14; k++) out.push(grp[(i + k) % grp.length]);
+    return out;
+}
+
+function vodOpenDetail(card, pushCurrent) {
+    if (pushCurrent) {
+        vod.stack.push(captureView());
+        if (vod.stack.length > 25) vod.stack.shift();
+    }
+    if (vod.view === 'detail') { vodStop(); }
+    vod.card = card;
+    addHistory(card);
+    if (card.kind === 'series') {
+        const lastUrl = lsGet(LS_LASTEP, {})[card.key];
+        const ep = card.eps.filter(function (e) { return e.url === lastUrl; })[0] || card.eps[0];
+        vod.epUrl = ep.url;
+        vod.season = ep.season;
+    }
+    vod.related = computeRelated(card);
+    vod.view = 'detail';
+    renderDetail();
+    vod.zone = 'video';
+    vod.idx = 0;
+    applyFocus();
+    startPreview();
+    fetchMeta(card);
+}
+
+function favButtonHtml() {
+    return ICON_HEART + (isFav(vod.card) ? 'Favoritado' : 'Favorito');
+}
+
+function renderDetail() {
+    const c = vod.card;
+    const isSeries = c.kind === 'series';
+    let info = '<p><span>Categoria:</span>' + esc(c.group) + '</p>' +
+               '<p><span>Tipo:</span>' + (isSeries ? 'Série' : 'Filme') + '</p>';
+    if (isSeries) {
+        info += '<p><span>Temporadas:</span>' + seasonsList().length + '</p>' +
+                '<p><span>Episódios:</span>' + c.eps.length + '</p>' +
+                '<p><span>Assistindo:</span><b id="vod-now"></b></p>';
+    }
+    info += '<p id="vod-nota" style="display:none"></p><p id="vod-data" style="display:none"></p>';
+
+    $v('vod-root').innerHTML =
+        '<div class="vod-detail-bg" style="background-image:url(\'' + esc(c.logo) + '\')"></div>' +
+        '<div class="vod-detail" id="vod-detail">' +
+          '<div class="vod-toprow">' +
+            '<div class="vod-win" data-z="video" data-i="0"></div>' +
+            '<div class="vod-info">' +
+              '<h1>' + esc(c.title) + '</h1>' + info +
+              '<div class="vod-actions">' +
+                '<div class="vod-act" data-z="act" data-i="0">' + ICON_FS + 'Tela Cheia</div>' +
+                '<div class="vod-act' + (isFav(c) ? ' isfav' : '') + '" id="vod-favbtn" data-z="act" data-i="1">' + favButtonHtml() + '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          (isSeries ?
+            '<div class="vod-h">Temporadas</div><div class="vod-row" id="vod-seasons"></div>' +
+            '<div class="vod-h">Episódios</div><div class="vod-row" id="vod-eps"></div>' : '') +
+          '<div class="vod-h">Sinopse</div>' +
+          '<div class="vod-syn" id="vod-syn">Carregando...</div>' +
+          (vod.related.length ? '<div class="vod-h">Relacionados</div><div class="vod-rel" id="vod-rel">' +
+            vod.related.map(function (r, i) { return cardHtml(r, i, 'rel'); }).join('') + '</div>' : '') +
+        '</div>';
+
+    if (isSeries) { renderSeasons(); renderEps(); updateNow(); }
+    const d = $v('vod-detail');
+    if (d) d.addEventListener('scroll', positionWin);
+}
+
+function renderSeasons() {
+    $v('vod-seasons').innerHTML = seasonsList().map(function (s, i) {
+        return '<div class="vod-chip' + (s === vod.season ? ' sel' : '') + '" data-z="seasons" data-i="' + i + '">Temporada ' + s + '</div>';
+    }).join('');
+}
+function renderEps() {
+    $v('vod-eps').innerHTML = epsOfSeason().map(function (e, i) {
+        return '<div class="vod-chip' + (e.url === vod.epUrl ? ' sel' : '') + '" data-z="eps" data-i="' + i + '">Ep. ' + e.ep + '</div>';
+    }).join('');
+}
+function updateNow() {
+    const n = $v('vod-now'), ep = currentEp();
+    if (n && ep) n.textContent = 'T' + ep.season + ' E' + ep.ep;
+}
+
+function zoneCount(z) {
+    if (z === 'video') return 1;
+    if (z === 'act') return 2;
+    if (z === 'seasons') return seasonsList().length;
+    if (z === 'eps') return epsOfSeason().length;
+    if (z === 'rel') return vod.related.length;
+    return 0;
+}
+function detailZones() {
+    const z = ['video', 'act'];
+    if (vod.card.kind === 'series') z.push('seasons', 'eps');
+    if (vod.related.length) z.push('rel');
+    return z;
+}
+
+function detailKeys(e) {
+    const k = e.key;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].indexOf(k) === -1) return;
+    e.preventDefault();
+    const zones = detailZones();
+    const zi = zones.indexOf(vod.zone);
+
+    if (k === 'ArrowUp' || k === 'ArrowDown') {
+        const nz = zones[zi + (k === 'ArrowDown' ? 1 : -1)];
+        if (!nz) return;
+        let ni = Math.min(vod.idx, Math.max(0, zoneCount(nz) - 1));
+        if (nz === 'seasons') ni = Math.max(0, seasonsList().indexOf(vod.season));
+        if (nz === 'eps') {
+            const li = epsOfSeason().map(function (x) { return x.url; }).indexOf(vod.epUrl);
+            ni = li === -1 ? 0 : li;
+        }
+        vod.zone = nz; vod.idx = ni;
+        applyFocus();
+    } else if (k === 'ArrowLeft') {
+        if (vod.idx > 0) { vod.idx--; applyFocus(); }
+    } else if (k === 'ArrowRight') {
+        if (vod.idx < zoneCount(vod.zone) - 1) { vod.idx++; applyFocus(); }
+    } else if (k === 'Enter') {
+        detailEnter();
+    }
+}
+
+function detailEnter() {
+    if (vod.zone === 'video') { enterFullscreen(); }
+    else if (vod.zone === 'act') {
+        if (vod.idx === 0) enterFullscreen();
+        else {
+            toggleFav(vod.card);
+            const b = $v('vod-favbtn');
+            b.innerHTML = favButtonHtml();
+            b.classList.toggle('isfav', isFav(vod.card));
+        }
+    } else if (vod.zone === 'seasons') {
+        vod.season = seasonsList()[vod.idx];
+        renderSeasons(); renderEps();
+        applyFocus();
+    } else if (vod.zone === 'eps') {
+        const ep = epsOfSeason()[vod.idx];
+        if (ep) { playEpisode(ep); enterFullscreen(); }
+    } else if (vod.zone === 'rel') {
+        vodOpenDetail(vod.related[vod.idx], true);
+    }
+}
+
+function playEpisode(ep) {
+    vod.epUrl = ep.url;
+    vod.season = ep.season;
+    const l = lsGet(LS_LASTEP, {}); l[vod.card.key] = ep.url; lsSet(LS_LASTEP, l);
+    vodStopKeepWindow();
+    vodPlayUrl(ep.url);
+    if ($v('vod-eps')) { renderSeasons(); renderEps(); updateNow(); }
+    if (vod.fullscreen) fillPlayerMeta();
+}
+
+/* ---------- sinopse / nota (TMDB, opcional) ---------- */
+function fetchMeta(card) {
+    const syn = $v('vod-syn');
+    if (!TMDB_API_KEY) { syn.textContent = 'Sinopse não disponível para este título.'; return; }
+    if (vod.metaCache[card.key]) { fillMeta(card, vod.metaCache[card.key]); return; }
+    const q = card.title.replace(/\[[^\]]*\]|\([^)]*\)/g, '').trim();
+    const ym = card.title.match(/\((\d{4})\)/);
+    const type = card.kind === 'series' ? 'tv' : 'movie';
+    let u = 'https://api.themoviedb.org/3/search/' + type + '?api_key=' + TMDB_API_KEY + '&language=pt-BR&query=' + encodeURIComponent(q);
+    if (ym) u += (type === 'movie' ? '&year=' : '&first_air_date_year=') + ym[1];
+    fetch(u).then(function (r) { return r.json(); }).then(function (d) {
+        const r0 = d.results && d.results[0];
+        const m = r0 ? { overview: r0.overview, nota: r0.vote_average, data: r0.release_date || r0.first_air_date } : {};
+        vod.metaCache[card.key] = m;
+        if (vod.card === card) fillMeta(card, m);
+    }).catch(function () {
+        if (vod.card === card && $v('vod-syn')) $v('vod-syn').textContent = 'Sinopse não disponível para este título.';
+    });
+}
+function fillMeta(card, m) {
+    if (!$v('vod-syn')) return;
+    $v('vod-syn').textContent = m.overview || 'Sinopse não disponível para este título.';
+    if (m.nota) { const n = $v('vod-nota'); n.innerHTML = '<span>Nota:</span>' + Number(m.nota).toFixed(1); n.style.display = ''; }
+    if (m.data) { const d = $v('vod-data'); d.innerHTML = '<span>Lançamento:</span>' + esc(m.data); d.style.display = ''; }
+}
+
+/* ---------- vídeo: janela, reprodução e progresso ---------- */
+function vodSpin(on) { const s = $v('vod-spin'); if (s) s.classList.toggle('hidden', !on); }
+
+function setWinMode(on) {
+    el.video.classList.toggle('vod-window', on);
+    if (!on) { el.video.style.cssText = ''; $v('vod-spin').style.cssText = ''; el.video.classList.remove('winfocus'); }
+    positionWin();
+}
+
+function positionWin() {
+    const v = el.video, sp = $v('vod-spin');
+    if (vod.fullscreen) { sp.style.cssText = 'left:0;top:0;width:100%;height:100%;'; return; }
+    if (!v.classList.contains('vod-window')) return;
+    const w = document.querySelector('.vod-win');
+    if (!w) return;
+    const r = w.getBoundingClientRect();
+    const vis = r.bottom > 0 && r.top < window.innerHeight;
+    const css = 'left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;height:' + r.height + 'px;' + (vis ? '' : 'visibility:hidden;');
+    v.style.cssText = css;
+    sp.style.cssText = css;
+}
+
+function startPreview() {
+    setWinMode(true);
+    vodPlayUrl(vod.card.kind === 'series' ? vod.epUrl : vod.card.url);
+    setTimeout(positionWin, 60);
+}
+
+function vodPlayUrl(url) {
+    vod.playUrl = url;
+    const p = lsGet(LS_PROGRESS, {})[url];
+    vodLoad(url, p ? p.t : 0);
+}
+
+function vodLoad(url, startAt) {
+    vod.resumeAt = startAt || 0;
+    if (state.hls) { state.hls.destroy(); state.hls = null; }
+    const v = el.video;
+    vodSpin(true);
+    if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported()) {
+        const hls = new Hls({ enableWorker: true });
+        state.hls = hls;
+        hls.loadSource(url);
+        hls.attachMedia(v);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () { v.play().catch(function () {}); });
+        hls.on(Hls.Events.ERROR, function (ev, d) {
+            if (d.fatal) {
+                if (d.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+                else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+            }
+        });
+    } else {
+        v.src = url;
+        v.load();
+        const pr = v.play();
+        if (pr && pr.catch) pr.catch(function () {});
+    }
+}
+
+function onVodMeta() {
+    const v = el.video;
+    if (vod.resumeAt > 5 && isFinite(v.duration) && vod.resumeAt < v.duration - 20) v.currentTime = vod.resumeAt;
+    vod.resumeAt = 0;
+}
+
+function saveProgress(force) {
+    const v = el.video;
+    if (!vod.playUrl || !isFinite(v.duration) || v.duration < 1 || v.currentTime < 1) return;
+    const now = Date.now();
+    if (!force && now - vod.lastSave < 5000) return;
+    vod.lastSave = now;
+    const p = lsGet(LS_PROGRESS, {});
+    if (v.currentTime > v.duration - 30) delete p[vod.playUrl];
+    else p[vod.playUrl] = { t: Math.floor(v.currentTime), d: Math.floor(v.duration) };
+    lsSet(LS_PROGRESS, p);
+}
+
+function vodStopKeepWindow() {
+    saveProgress(true);
+    el.video.pause();
+}
+function vodStop() {
+    saveProgress(true);
+    const v = el.video;
+    v.pause();
+    if (state.hls) { state.hls.destroy(); state.hls = null; }
+    v.removeAttribute('src');
+    v.load();
+    vod.playUrl = null;
+    vodSpin(false);
+}
+
+function onVodTime() {
+    if (!vod.playUrl) return;
+    saveProgress(false);
+    if (vod.fullscreen) updateBar();
+}
+
+function onVodEnded() {
+    saveProgress(true);
+    if (vod.card && vod.card.kind === 'series') {
+        const i = vod.card.eps.map(function (e) { return e.url; }).indexOf(vod.epUrl);
+        if (i >= 0 && i < vod.card.eps.length - 1) { playEpisode(vod.card.eps[i + 1]); return; }
+    }
+    if (vod.fullscreen) exitFullscreen();
+}
+
+/* ---------- player em tela cheia ---------- */
+function enterFullscreen() {
+    vod.fullscreen = true;
+    $v('vod-root').classList.add('fs');
+    el.video.classList.remove('vod-window', 'winfocus');
+    el.video.style.cssText = '';
+    el.video.style.objectFit = vod.fitCover ? 'cover' : 'contain';
+    el.video.playbackRate = SPEEDS[vod.speedIdx];
+    positionWin();
+    $v('vod-player-ui').classList.add('on');
+    fillPlayerMeta();
+    updateBar();
+    showPlayerUI();
+    const pr = el.video.play();
+    if (pr && pr.catch) pr.catch(function () {});
+}
+
+function exitFullscreen() {
+    saveProgress(true);
+    vod.fullscreen = false;
+    closeSettings();
+    clearTimeout(vod.uiTimer);
+    $v('vod-root').classList.remove('fs');
+    $v('vod-player-ui').classList.remove('on');
+    el.video.style.objectFit = '';
+    el.video.style.cssText = '';
+    $v('vod-spin').style.cssText = '';
+    if (vod.view === 'detail') { setWinMode(true); applyFocus(); }
+}
+
+function fillPlayerMeta() {
+    const c = vod.card;
+    let title = c.title;
+    if (c.kind === 'series') {
+        const ep = currentEp();
+        if (ep) title += '  -  T' + ep.season + ' E' + ep.ep;
+    }
+    $v('vod-pui-title').textContent = title;
+    const th = $v('vod-pui-thumb');
+    th.style.visibility = c.logo ? 'visible' : 'hidden';
+    if (c.logo) th.src = c.logo;
+}
+
+function updateBar() {
+    const v = el.video;
+    $v('vod-pui-cur').textContent = fmtTime(v.currentTime);
+    $v('vod-pui-dur').textContent = fmtTime(v.duration);
+    const pct = (isFinite(v.duration) && v.duration > 0) ? (v.currentTime / v.duration) * 100 : 0;
+    $v('vod-pui-fill').style.width = Math.min(100, pct) + '%';
+}
+
+function showPlayerUI() {
+    const ui = $v('vod-player-ui');
+    ui.classList.remove('idle');
+    clearTimeout(vod.uiTimer);
+    vod.uiTimer = setTimeout(function () {
+        if (!el.video.paused && !vod.settingsOpen) ui.classList.add('idle');
+    }, 4000);
+}
+
+function flashIcon(paused) {
+    const c = $v('vod-pui-center');
+    if (!vod.fullscreen) return;
+    c.innerHTML = paused ? ICON_PAUSE : ICON_PLAY;
+    c.classList.add('show');
+    clearTimeout(vod.iconTimer);
+    if (!paused) vod.iconTimer = setTimeout(function () { c.classList.remove('show'); }, 900);
+}
+
+function vodSeek(dir) {
+    const v = el.video;
+    if (!isFinite(v.duration)) return;
+    vod.seekRepeat++;
+    const step = Math.min(120, 10 * (1 + Math.floor(vod.seekRepeat / 4)));
+    v.currentTime = Math.max(0, Math.min(v.duration - 1, v.currentTime + dir * step));
+    updateBar();
+    showPlayerUI();
+}
+
+function togglePlay() {
+    const v = el.video;
+    if (v.paused) { const pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } else v.pause();
+    showPlayerUI();
+}
+
+function playerKeys(e) {
+    const k = e.key;
+    if (vod.settingsOpen) { settingsKeys(e); return; }
+    switch (k) {
+        case 'ArrowLeft': case 'MediaRewind':
+            e.preventDefault(); vodSeek(-1); break;
+        case 'ArrowRight': case 'MediaFastForward':
+            e.preventDefault(); vodSeek(1); break;
+        case 'Enter': case ' ': case 'MediaPlayPause':
+            e.preventDefault(); togglePlay(); break;
+        case 'ArrowDown':
+            e.preventDefault(); openSettings(); break;
+        case 'ArrowUp':
+            e.preventDefault(); showPlayerUI(); break;
+        case 'Escape': case 'Backspace': case 'BrowserBack':
+            e.preventDefault(); exitFullscreen(); break;
+        default:
+            showPlayerUI();
+    }
+}
+
+/* Configurações: velocidade e ajuste da imagem */
+function renderSettings() {
+    $v('vod-settings').innerHTML =
+        '<div class="vod-set-row' + (vod.settingsRow === 0 ? ' on' : '') + '"><span>Velocidade</span><b>' + SPEEDS[vod.speedIdx] + 'x</b></div>' +
+        '<div class="vod-set-row' + (vod.settingsRow === 1 ? ' on' : '') + '"><span>Imagem</span><b>' + (vod.fitCover ? 'Preencher' : 'Ajustar') + '</b></div>';
+}
+function openSettings() {
+    vod.settingsOpen = true;
+    vod.settingsRow = 0;
+    $v('vod-settings').classList.remove('hidden');
+    renderSettings();
+    showPlayerUI();
+}
+function closeSettings() {
+    vod.settingsOpen = false;
+    const s = $v('vod-settings'); if (s) s.classList.add('hidden');
+    if (vod.fullscreen) showPlayerUI();
+}
+function settingsKeys(e) {
+    const k = e.key;
+    if (k === 'Escape' || k === 'Backspace' || k === 'BrowserBack' || k === 'Enter') { e.preventDefault(); closeSettings(); return; }
+    if (k === 'ArrowUp') { e.preventDefault(); vod.settingsRow = 0; }
+    else if (k === 'ArrowDown') { e.preventDefault(); vod.settingsRow = 1; }
+    else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+        e.preventDefault();
+        const d = k === 'ArrowRight' ? 1 : -1;
+        if (vod.settingsRow === 0) {
+            vod.speedIdx = Math.max(0, Math.min(SPEEDS.length - 1, vod.speedIdx + d));
+            el.video.playbackRate = SPEEDS[vod.speedIdx];
+        } else {
+            vod.fitCover = !vod.fitCover;
+            el.video.style.objectFit = vod.fitCover ? 'cover' : 'contain';
+        }
+    }
+    renderSettings();
+    showPlayerUI();
+}
