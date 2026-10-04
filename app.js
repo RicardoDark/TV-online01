@@ -86,6 +86,16 @@ window.addEventListener('DOMContentLoaded', () => {
 
     setupSplashNavigation();
     setupLogin();
+
+    // Tela de "Carregando..." demorando: Voltar/Esc cancela e volta ao início
+    document.addEventListener('keydown', function (e) {
+        if (pin.open) return;
+        if (e.key !== 'Escape' && e.key !== 'Backspace' && e.key !== 'GoBack') return;
+        if (!state.vodActive && !state.isMenuVisible && el.status && !el.status.classList.contains('hidden')) {
+            e.preventDefault();
+            handleBackAction();
+        }
+    });
 });
 
 function setupSplashNavigation() {
@@ -116,7 +126,7 @@ function splashTopAction(i) {
     if (i === 0) selectCategoryAndStart('tv', { tvFavorites: true });
     else if (i === 1) selectCategoryAndStart('mixed', { vodCat: '__fav' });
     else if (i === 2) selectCategoryAndStart('mixed', { vodCat: '__hist' });
-    else logoutApp();
+    else askAdultPin(logoutApp, null, { force: true, title: 'Sair da conta', sub: 'Digite a senha para sair' });
 }
 
 function updateSplashFocus() {
@@ -482,7 +492,6 @@ function parseM3UAll(text) {
                 meta.id = 'ch_' + out.total;
                 out.total++;
                 const kind = classifyEntry(meta);
-                if (isAdultText(meta.name) && !isAdultText(meta.folder)) meta.folder = ADULT_FOLDER;
                 if (kind === 'movie') out.movies.push(meta);
                 else if (kind === 'series') out.series.push(meta);
                 else out.tv.push(meta);
@@ -504,6 +513,7 @@ function parseM3U(all) {
     const seen = Object.create(null);
 
     list.forEach(function (ch) {
+        if (isAdultText(ch.name) && !isAdultText(ch.folder)) ch.folder = ADULT_FOLDER;
         state.channels.push(ch);
         if (!seen[ch.folder]) {
             seen[ch.folder] = true;
@@ -1027,6 +1037,11 @@ function handleBackAction() {
     if (el.splash.classList.contains('splash-visible')) return false;
     // Tela de erro: volta para o início
     if (state.fatal) { window.location.reload(); return true; }
+    // Carregando e travou? Voltar recarrega o app (volta para a tela inicial)
+    if (!state.vodActive && !state.isMenuVisible && el.status && !el.status.classList.contains('hidden')) {
+        window.location.reload();
+        return true;
+    }
     if (state.vodActive) return vodBack();
     if (!state.isMenuVisible) {
         toggleMenu(true);
@@ -1121,16 +1136,18 @@ function loadM3U(url) {
 /* ====================================================================
    BLOQUEIO ADULTO (senha numérica na tela, funciona com o controle remoto)
    ==================================================================== */
-const pin = { open: false, value: '', idx: 4, onOk: null, onCancel: null, box: null, keys: [] };
+const pin = { open: false, value: '', idx: 4, onOk: null, onCancel: null, box: null, keys: [], force: false };
 const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'APAGAR', '0', 'SAIR'];
 
 function isAdultText(s) { return /xxx/i.test(String(s || '')); }
 function isAdultLocked(name) { return !adultUnlocked && isAdultText(name); }
 
-function askAdultPin(onOk, onCancel) {
-    if (adultUnlocked) { if (onOk) onOk(); return; }
+function askAdultPin(onOk, onCancel, opts) {
+    const force = !!(opts && opts.force);   // force = sempre pede a senha (ex.: botão Sair)
+    if (adultUnlocked && !force) { if (onOk) onOk(); return; }
     if (pin.open) return;
     pin.open = true;
+    pin.force = force;
     pin.value = '';
     pin.idx = 4;
     pin.onOk = onOk || null;
@@ -1140,8 +1157,8 @@ function askAdultPin(onOk, onCancel) {
     box.id = 'pin-modal';
     box.innerHTML =
         '<div class="pin-box">' +
-          '<div class="pin-title">Conteúdo adulto</div>' +
-          '<div class="pin-sub">Digite a senha para desbloquear</div>' +
+          '<div class="pin-title">' + ((opts && opts.title) || 'Conteúdo adulto') + '</div>' +
+          '<div class="pin-sub">' + ((opts && opts.sub) || 'Digite a senha para desbloquear') + '</div>' +
           '<div class="pin-dots" id="pin-dots"></div>' +
           '<div class="pin-error" id="pin-error"></div>' +
           '<div class="pin-pad">' +
@@ -1172,7 +1189,7 @@ function pinClose(ok) {
     pin.open = false;
     pin.box = null;
     const cb = ok ? pin.onOk : pin.onCancel;
-    if (ok) adultUnlocked = true;
+    if (ok && !pin.force) adultUnlocked = true;
     pin.onOk = pin.onCancel = null;
     if (cb) cb();
 }
