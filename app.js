@@ -1,3 +1,32 @@
+/* ====================================================================
+   TELA FIXA 1920x1080
+   O app é desenhado sempre em 1920x1080 e redimensionado inteiro para caber
+   no aparelho (celular, tablet, TV Box). Sobra faixa preta se a proporção for diferente.
+   ==================================================================== */
+const DESIGN_W = 1920, DESIGN_H = 1080;
+const stage = { s: 1, x: 0, y: 0 };
+function fitStage() {
+    const w = window.innerWidth || document.documentElement.clientWidth || DESIGN_W;
+    const h = window.innerHeight || document.documentElement.clientHeight || DESIGN_H;
+    // escala pelo lado que "encosta" primeiro; o outro lado é esticado para preencher a tela
+    let s = Math.min(w / DESIGN_W, h / DESIGN_H);
+    // limite do esticamento (telas muito estranhas ainda ganham faixa preta)
+    const sw = Math.min(w / s, 2560);
+    const sh = Math.min(h / s, 1200);
+    s = Math.min(w / sw, h / sh);
+    stage.s = s;
+    stage.x = Math.max(0, (w - sw * s) / 2);
+    stage.y = Math.max(0, (h - sh * s) / 2);
+    const b = document.body;
+    b.style.width = sw + 'px';
+    b.style.height = sh + 'px';
+    b.style.transformOrigin = '0 0';
+    b.style.transform = 'translate(' + stage.x + 'px,' + stage.y + 'px) scale(' + s + ')';
+}
+fitStage();
+window.addEventListener('resize', fitStage);
+window.addEventListener('orientationchange', function () { setTimeout(fitStage, 200); });
+
 // Constants
 // Lista embutida (botão "TV grátis")
 const M3U_URL = 'https://raw.githubusercontent.com/RicardoDark/iptv01/refs/heads/main/minhalista.m3u';
@@ -2549,7 +2578,9 @@ function positionWin() {
     if (!w) return;
     const r = w.getBoundingClientRect();
     const vis = r.bottom > 0 && r.top < window.innerHeight;
-    const css = 'left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;height:' + r.height + 'px;' + (vis ? '' : 'visibility:hidden;');
+    // r vem em pixels da tela real; converte para a tela fixa 1920x1080
+    const k = stage.s || 1;
+    const css = 'left:' + ((r.left - stage.x) / k) + 'px;top:' + ((r.top - stage.y) / k) + 'px;width:' + (r.width / k) + 'px;height:' + (r.height / k) + 'px;' + (vis ? '' : 'visibility:hidden;');
     v.style.cssText = css;
     sp.style.cssText = css;
 }

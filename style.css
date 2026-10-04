@@ -653,8 +653,8 @@ body, html {
 }
 .vod-toprow { display: flex; align-items: flex-start; }
 .vod-win {
-    width: 42vw;
-    height: 23.6vw;
+    width: 806px;
+    height: 453px;
     flex-shrink: 0;
     border-radius: 18px;
     background: #000;
@@ -671,7 +671,7 @@ body, html {
 }
 #video-player.vod-window.winfocus { border-color: #fff; }
 
-.vod-info { flex: 1; min-width: 0; margin-left: 3vw; }
+.vod-info { flex: 1; min-width: 0; margin-left: 58px; }
 .vod-info h1 { font-size: 3rem; font-weight: 800; line-height: 1.1; margin-bottom: 14px; }
 .vod-info p { font-size: 1.5rem; margin-bottom: 8px; }
 .vod-info p span { color: var(--text-secondary); margin-right: 8px; }
@@ -709,7 +709,7 @@ body, html {
 .vod-chip.vfocus { background: var(--focus-gradient); color: #000; border-color: #fff; }
 
 .vod-rel { white-space: nowrap; overflow-x: auto; overflow-y: hidden; padding: 14px 8px 10px 8px; }
-.vod-rel .vod-card { display: inline-block; width: 14vw; margin-right: 18px; vertical-align: top; }
+.vod-rel .vod-card { display: inline-block; width: 269px; margin-right: 18px; vertical-align: top; }
 
 /* ---------- Carregando dentro da janela ---------- */
 .vod-spin {
@@ -877,7 +877,7 @@ body.use-pointer #vod-player-ui .vod-settings { pointer-events: auto; }
 
 .vod-pui-track { height: 5px; padding: 12px 0; background-clip: content-box; box-sizing: content-box; }
 
-@media (max-width: 900px) {
+@media (max-width: 0px) {  /* desligado: o app usa sempre a tela fixa 1920x1080 */
     .vod-cats { width: 30%; min-width: 150px; padding: 14px 8px 70px 10px; }
     .vod-cat { font-size: 1.1rem; padding: 10px 10px; }
     .vod-grid { grid-template-columns: repeat(3, 1fr); grid-column-gap: 12px; }
@@ -1038,7 +1038,7 @@ body.use-pointer #vod-player-ui .vod-settings { pointer-events: auto; }
 .splash-expiry.expired { background: rgba(200, 40, 40, 0.45); }
 .splash-expiry.expired .splash-expiry-sub { color: #fff; font-weight: 700; }
 
-@media (max-width: 900px) {
+@media (max-width: 0px) {  /* desligado: o app usa sempre a tela fixa 1920x1080 */
     .login-box { padding: 22px 22px 24px; }
     .login-free { right: 16px; bottom: 14px; padding: 10px 20px; }
     .splash-expiry { top: 14px; left: 14px; padding: 8px 14px; }
@@ -1052,7 +1052,7 @@ html.has-session #login-screen { display: none !important; }
 #login-screen.instant { transition: none; }
 
 #status-container { padding: 24px 34px; border-radius: 16px; }
-#status-message { max-width: 80vw; text-align: center; white-space: pre-line; line-height: 1.45; }
+#status-message { max-width: 1536px; text-align: center; white-space: pre-line; line-height: 1.45; }
 
 .vod-msg {
     position: fixed;
@@ -1060,7 +1060,7 @@ html.has-session #login-screen { display: none !important; }
     bottom: 70px;
     transform: translateX(-50%);
     z-index: 120;
-    max-width: 80vw;
+    max-width: 1536px;
     padding: 14px 24px;
     border-radius: 14px;
     background: rgba(0, 0, 0, 0.88);
@@ -1140,4 +1140,20 @@ html.has-session #login-screen { display: none !important; }
     background: rgba(255, 255, 255, 0.22);
     transform: scale(1.06);
     box-shadow: 0 0 22px rgba(0, 229, 255, 0.8);
+}
+
+
+/* ================================================================
+   Tela fixa 1920x1080: o app desenha sempre nesse tamanho e é
+   redimensionado inteiro para caber em qualquer aparelho.
+   (o ajuste é feito pelo fitStage() no começo do app.js)
+   ================================================================ */
+html { background: #000; }
+body {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+    transform-origin: 0 0;
 }
