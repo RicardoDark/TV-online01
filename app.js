@@ -2122,10 +2122,24 @@ function probeUrl(url, cb) {
         if (ctrl) { try { ctrl.abort(); } catch (e) {} }
         cb(r);
     }
-    t = setTimeout(function () { fin('lenta'); }, 6000);
+    t = setTimeout(function () { fin('lenta'); }, 7000);
+    const sig = ctrl ? ctrl.signal : undefined;
     try {
-        fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctrl ? ctrl.signal : undefined })
-            .then(function () { fin('ok'); }, function () { fin('BLOQUEADA'); });
+        // 1) pedido normal: se o servidor libera o acesso (CORS), dá para ver o status e o começo da resposta
+        fetch(url, { mode: 'cors', cache: 'no-store', signal: sig }).then(function (r) {
+            const ct = String(r.headers.get('content-type') || '').split(';')[0];
+            const base = 'ok HTTP' + r.status + ' ' + (ct || '?');
+            if (/mpegurl|text|json|html|xml/i.test(ct)) {
+                return r.text().then(function (tx) {
+                    fin(base + ' «' + String(tx).slice(0, 70).replace(/\s+/g, ' ') + '»');
+                }, function () { fin(base); });
+            }
+            fin(base);
+        }, function () {
+            // 2) sem CORS: só testa se o aparelho consegue alcançar o endereço
+            fetch(url, { mode: 'no-cors', cache: 'no-store', signal: sig })
+                .then(function () { fin('ok-sem-CORS'); }, function () { fin('BLOQUEADA'); });
+        });
     } catch (e) { fin('?'); }
 }
 
@@ -2158,7 +2172,7 @@ function loadStreamOne(url, opts) {
     clearTimeout(streamWatch);
     destroyHls();
 
-    let usingNative = false, finished = false, failed = false, blocked = false, lastErr = '';
+    let usingNative = false, finished = false, failed = false, blocked = false, lastErr = '', hlsErr = '';
     const stale = function () { return token !== streamToken; };
 
     const hlsLike = o.live
@@ -2187,7 +2201,8 @@ function loadStreamOne(url, opts) {
                 ' hls:' + (window.Hls ? (Hls.isSupported() ? 'ok' : 'semMSE') : 'ausente') +
                 ' net:' + v.networkState + ' rs:' + v.readyState +
                 ' rede:' + rede +
-                ' | v7 ' + hostInfo(url) +
+                (hlsErr ? ' hlsjs:' + hlsErr : '') +
+                ' | v8 ' + hostInfo(url) +
                 (o.tried ? ' | tentou: ' + o.tried : '');
             const dica = (rede === 'BLOQUEADA' && location.protocol === 'https:' && /^http:/i.test(url))
                 ? 'Provável bloqueio: página https abrindo vídeo http. ' : '';
@@ -2248,6 +2263,7 @@ function loadStreamOne(url, opts) {
         hls.on(Hls.Events.ERROR, function (ev, d) {
             if (stale()) return;
             lastErr = (d.type || '') + '/' + (d.details || '');
+            hlsErr = lastErr + (d.response && d.response.code ? '(' + d.response.code + ')' : '');
             if (!d.fatal) return;
             if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
                 if (finished || netTries++ < 1) { try { hls.startLoad(); } catch (e) {} return; }
