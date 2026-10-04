@@ -44,14 +44,21 @@
 
     <!-- Category Selection Splash Screen -->
     <div id="splash-screen" class="splash-visible">
-        <!-- Top Right Status Icons (Heart & Clock) -->
+        <!-- Atalhos no canto: TV Favoritos, Favoritos (filmes e séries) e Histórico -->
         <div class="top-status-bar">
-            <div class="status-icon-item" title="Favoritos">
+            <div id="btn-tvfav" class="status-icon-item status-pill" tabindex="0" title="TV Favoritos">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect>
+                    <polyline points="17 2 12 7 7 2"></polyline>
+                </svg>
+                <span>TV Favoritos</span>
+            </div>
+            <div id="btn-vodfav" class="status-icon-item" tabindex="0" title="Favoritos de Filmes e Séries">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
                 </svg>
             </div>
-            <div class="status-icon-item" title="Histórico">
+            <div id="btn-vodhist" class="status-icon-item" tabindex="0" title="Histórico">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
                     <polyline points="12 6 12 12 16 14"></polyline>
@@ -114,6 +121,8 @@
         <div class="toast-channel-group" id="toast-channel-group">Grupo do Canal</div>
     </div>
 
+    <div id="vod-backbtn" class="vod-backbtn">&#8592; Voltar</div>
+
     <!-- Filmes e Séries -->
     <div id="vod-root"></div>
     <div id="vod-spin" class="vod-spin hidden"><div class="spinner"></div></div>
@@ -124,12 +133,19 @@
             <div class="vod-pui-cam">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7l-6 5 6 5V7z"></path><rect x="2" y="6" width="14" height="12" rx="2" ry="2"></rect></svg>
             </div>
+            <div class="vod-pui-touch">
+                <div class="vod-tbtn" data-a="rew">-10</div>
+                <div class="vod-tbtn" data-a="play">Play/Pause</div>
+                <div class="vod-tbtn" data-a="ff">+10</div>
+                <div class="vod-tbtn" data-a="set">Configurações</div>
+                <div class="vod-tbtn" data-a="close">Sair</div>
+            </div>
             <div class="vod-pui-bar">
                 <img id="vod-pui-thumb" class="vod-pui-thumb" alt="">
                 <div class="vod-pui-mid">
                     <div class="vod-pui-title" id="vod-pui-title"></div>
                     <div class="vod-pui-times"><span id="vod-pui-cur">00:00</span><span id="vod-pui-dur">00:00</span></div>
-                    <div class="vod-pui-track"><div id="vod-pui-fill"></div></div>
+                    <div class="vod-pui-track" data-a="track"><div id="vod-pui-fill"></div></div>
                     <div class="vod-pui-hints">
                         <span class="vod-hint"><i>&#9664;&#9654;</i>Avançar/Voltar</span>
                         <span class="vod-hint"><i>&#9660;</i>Configurações</span>

@@ -805,3 +805,94 @@ body, html {
 }
 .vod-set-row b { font-weight: 800; }
 .vod-set-row.on { background: var(--focus-gradient); color: #000; border-color: #fff; }
+
+
+/* ================================================================
+   Tela inicial: atalhos do canto (TV Favoritos, Favoritos, Histórico)
+   ================================================================ */
+.top-status-bar { gap: 0; }
+.status-icon-item { margin-left: 18px; cursor: pointer; border: 2px solid transparent; box-sizing: border-box; transition: all 0.15s ease; }
+.status-icon-item.status-pill { width: auto; padding: 0 20px; border-radius: 22px; height: 44px; }
+.status-icon-item.status-pill span { margin-left: 10px; font-size: 1.05rem; font-weight: 600; color: #fff; white-space: nowrap; }
+.status-icon-item.focused, .status-icon-item:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: #ffffff;
+    transform: scale(1.1);
+    box-shadow: 0 0 22px rgba(0, 229, 255, 0.8);
+    outline: none;
+}
+
+/* TV ao Vivo: dica da pasta Favoritos vazia */
+.list-hint { padding: 24px 22px; font-size: 1.1rem; color: var(--text-secondary); line-height: 1.4; }
+
+/* ================================================================
+   Mouse e toque (computador e celular)
+   ================================================================ */
+.vod-backbtn {
+    display: none;
+    position: fixed;
+    right: 28px;
+    bottom: 24px;
+    z-index: 45;
+    align-items: center;
+    padding: 14px 26px;
+    border-radius: 30px;
+    background: rgba(0, 0, 0, 0.78);
+    border: 2px solid rgba(255, 255, 255, 0.55);
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+}
+body.use-pointer.vod-on .vod-backbtn { display: flex; }
+body.vod-fs .vod-backbtn { display: none !important; }
+
+.vod-card, .vod-cat, .vod-btn, .vod-key, .vod-act, .vod-chip { cursor: pointer; }
+#video-player.vod-window { cursor: pointer; }
+
+.vod-pui-touch {
+    display: none;
+    position: absolute;
+    top: 3%;
+    right: 3%;
+}
+body.use-pointer .vod-pui-touch { display: flex; }
+.vod-tbtn {
+    padding: 12px 20px;
+    margin-left: 12px;
+    border-radius: 24px;
+    background: rgba(0, 0, 0, 0.75);
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+    pointer-events: none;
+}
+body.use-pointer #vod-player-ui .vod-tbtn,
+body.use-pointer #vod-player-ui .vod-pui-track,
+body.use-pointer #vod-player-ui .vod-set-row { pointer-events: auto; cursor: pointer; }
+body.use-pointer #vod-player-ui .vod-settings { pointer-events: auto; }
+#vod-player-ui.idle .vod-pui-layer * { pointer-events: none !important; }
+
+.vod-pui-track { height: 5px; padding: 12px 0; background-clip: content-box; box-sizing: content-box; }
+
+@media (max-width: 900px) {
+    .vod-cats { width: 30%; min-width: 150px; padding: 14px 8px 70px 10px; }
+    .vod-cat { font-size: 1.1rem; padding: 10px 10px; }
+    .vod-grid { grid-template-columns: repeat(3, 1fr); grid-column-gap: 12px; }
+    .vod-btn { padding: 10px 16px; font-size: 1.05rem; margin-right: 10px; }
+    .vod-catlabel, .vod-total { font-size: 1.05rem; margin-right: 12px; }
+    .vod-toprow { flex-direction: column; }
+    .vod-win { width: 100%; height: 56vw; }
+    .vod-info { margin-left: 0; margin-top: 16px; }
+    .vod-info h1 { font-size: 2rem; }
+    .vod-rel .vod-card { width: 30vw; }
+    .vod-kbpanel { min-width: 0; width: 46%; padding: 14px; }
+    .vod-pui-bar { left: 2%; right: 2%; padding: 12px; }
+    .vod-pui-thumb { display: none; }
+    .vod-pui-hints { display: none; }
+    .vod-tbtn { padding: 10px 14px; font-size: 1rem; margin-left: 8px; }
+    .splash-cards-container { flex-wrap: wrap; }
+    .splash-card { width: 150px; height: 190px; }
+}

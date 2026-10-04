@@ -1,6 +1,9 @@
 // Constants
 const M3U_URL = 'https://raw.githubusercontent.com/RicardoDark/iptv01/refs/heads/main/minhalista.m3u';
 const STORAGE_LAST_CHANNEL_KEY = 'iptv_last_played_channel';
+const TV_FAV_KEY = 'iptv_tv_favs';
+const LONG_PRESS_MS = 700;
+let FAV_FOLDER = 'Favoritos';
 
 // State Management
 let state = {
@@ -17,7 +20,16 @@ let state = {
     isAndroid: false,
     menuTimeout: null,
     selectedCategory: null, // 'tv', 'movies' ou 'series'
-    splashFocusIndex: 0 // 0: TV, 1: Filmes, 2: Séries
+    splashFocusIndex: 0, // 0: TV, 1: Filmes, 2: Séries
+    splashZone: 'cards', // 'cards' ou 'top' (ícones do canto)
+    splashTopIndex: 1, // 0: TV Favoritos, 1: Favoritos (coração), 2: Histórico
+    startFavorites: false,
+    vodEntryCat: null,
+    m3uText: '',
+    enterPressed: false,
+    enterTimer: null,
+    enterChannel: null,
+    longDone: false
 };
 
 // DOM Elements
@@ -49,30 +61,51 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupSplashNavigation() {
+    state.splashZone = 'cards';
+    state.splashTopIndex = 1;
     updateSplashFocus();
     document.addEventListener('keydown', handleSplashKeys);
-    
+
     el.btnTv.addEventListener('click', () => selectCategoryAndStart('tv'));
     el.btnMovies.addEventListener('click', () => selectCategoryAndStart('movies'));
     el.btnSeries.addEventListener('click', () => selectCategoryAndStart('series'));
+
+    splashTopButtons().forEach((btn, i) => {
+        btn.addEventListener('click', () => splashTopAction(i));
+    });
+}
+
+function splashTopButtons() {
+    return [
+        document.getElementById('btn-tvfav'),
+        document.getElementById('btn-vodfav'),
+        document.getElementById('btn-vodhist')
+    ];
+}
+
+function splashTopAction(i) {
+    if (i === 0) selectCategoryAndStart('tv', { tvFavorites: true });
+    else if (i === 1) selectCategoryAndStart('mixed', { vodCat: '__fav' });
+    else selectCategoryAndStart('mixed', { vodCat: '__hist' });
 }
 
 function updateSplashFocus() {
-    el.btnTv.classList.remove('focused');
-    el.btnMovies.classList.remove('focused');
-    el.btnSeries.classList.remove('focused');
+    const cards = [el.btnTv, el.btnMovies, el.btnSeries];
+    cards.forEach(c => c.classList.remove('focused'));
+    const tops = splashTopButtons();
+    tops.forEach(t => { if (t) t.classList.remove('focused'); });
 
-    if (state.splashFocusIndex === 0) {
-        el.btnTv.classList.add('focused');
-    } else if (state.splashFocusIndex === 1) {
-        el.btnMovies.classList.add('focused');
-    } else {
-        el.btnSeries.classList.add('focused');
+    if (state.splashZone === 'cards') {
+        cards[state.splashFocusIndex].classList.add('focused');
+    } else if (tops[state.splashTopIndex]) {
+        tops[state.splashTopIndex].classList.add('focused');
     }
 }
 
 function handleSplashKeys(e) {
-    if (!el.splash.classList.contains('hidden')) {
+    if (el.splash.classList.contains('hidden')) return;
+
+    if (state.splashZone === 'cards') {
         if (e.key === 'ArrowRight') {
             e.preventDefault();
             state.splashFocusIndex = (state.splashFocusIndex + 1) % 3;
@@ -80,6 +113,10 @@ function handleSplashKeys(e) {
         } else if (e.key === 'ArrowLeft') {
             e.preventDefault();
             state.splashFocusIndex = (state.splashFocusIndex - 1 + 3) % 3;
+            updateSplashFocus();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            state.splashZone = 'top';
             updateSplashFocus();
         } else if (e.key === 'Enter') {
             e.preventDefault();
@@ -91,13 +128,32 @@ function handleSplashKeys(e) {
                 selectCategoryAndStart('series');
             }
         }
+    } else {
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            state.splashTopIndex = Math.min(2, state.splashTopIndex + 1);
+            updateSplashFocus();
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            state.splashTopIndex = Math.max(0, state.splashTopIndex - 1);
+            updateSplashFocus();
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            state.splashZone = 'cards';
+            updateSplashFocus();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            splashTopAction(state.splashTopIndex);
+        }
     }
 }
 
-function selectCategoryAndStart(category) {
+function selectCategoryAndStart(category, opts) {
     state.selectedCategory = category;
+    state.startFavorites = !!(opts && opts.tvFavorites);
+    state.vodEntryCat = (opts && opts.vodCat) || null;
     document.removeEventListener('keydown', handleSplashKeys);
-    
+
     el.splash.classList.add('hidden');
     el.splash.classList.remove('splash-visible');
     startApp();
@@ -111,6 +167,12 @@ function startApp() {
             return response.text();
         })
         .then(data => {
+            state.m3uText = data;
+            if (state.selectedCategory === 'mixed') {
+                hideStatus();
+                startVodMixed();
+                return;
+            }
             parseM3U(data);
             hideStatus();
             
@@ -124,12 +186,18 @@ function startApp() {
                 return;
             }
 
+            buildTvFavFolder();
             renderFolders();
             selectFolder(0, false);
-            loadLastPlayedChannel();
+            if (!state.startFavorites) loadLastPlayedChannel();
             
             state.activeColumn = 'folders';
             state.focusedFolderIndex = 0;
+            if (state.startFavorites) {
+                state.activeColumn = (state.channelsByFolder[FAV_FOLDER] || []).length ? 'channels' : 'folders';
+                state.focusedChannelIndex = 0;
+                toggleMenu(true);
+            }
             updateFocusDOM();
             
             setupKeyboardNavigation();
@@ -233,7 +301,7 @@ function renderChannels(folderName) {
         const item = document.createElement('div');
         item.className = 'list-item';
         item.id = `channel-${index}`;
-        item.textContent = channel.name;
+        item.textContent = channel.name + ((folderName !== FAV_FOLDER && isTvFav(channel)) ? '  \u2665' : '');
         item.dataset.index = index;
         
         if (state.playingChannel && state.playingChannel.url === channel.url) {
@@ -242,6 +310,13 @@ function renderChannels(folderName) {
         
         el.channelsList.appendChild(item);
     });
+
+    if (folderName === FAV_FOLDER && folderChannels.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'list-hint';
+        hint.textContent = 'Nenhum favorito ainda. Em qualquer canal, segure o OK para adicionar.';
+        el.channelsList.appendChild(hint);
+    }
 }
 
 function selectFolder(index, focusChannels = false) {
@@ -456,9 +531,10 @@ function loadLastPlayedChannel() {
     }
     
     if (state.folders.length > 0) {
-        selectFolder(0, false);
-        const firstFolder = state.folders[0];
-        const firstFolderChannels = state.channelsByFolder[firstFolder];
+        let fi = state.folders.findIndex(f => (state.channelsByFolder[f] || []).length > 0);
+        if (fi === -1) fi = 0;
+        selectFolder(fi, false);
+        const firstFolderChannels = state.channelsByFolder[state.folders[fi]];
         if (firstFolderChannels && firstFolderChannels.length > 0) {
             playChannel(firstFolderChannels[0]);
         }
@@ -510,6 +586,7 @@ function zapChannel(direction) {
 }
 
 function setupKeyboardNavigation() {
+    setupEnterKeyUp();
     document.addEventListener('keydown', (e) => {
         if (state.isMenuVisible) {
             resetMenuInactivityTimer();
@@ -592,15 +669,7 @@ function setupKeyboardNavigation() {
                     selectFolder(state.focusedFolderIndex, true);
                     updateFocusDOM();
                 } else {
-                    const targetChannel = currentFolderChannels[state.focusedChannelIndex];
-                    if (targetChannel) {
-                        const isAlreadyPlaying = state.playingChannel && state.playingChannel.url === targetChannel.url;
-                        if (isAlreadyPlaying) {
-                            toggleMenu(false);
-                        } else {
-                            playChannel(targetChannel);
-                        }
-                    }
+                    startEnterPress(currentFolderChannels[state.focusedChannelIndex]);
                 }
                 break;
                 
@@ -644,6 +713,17 @@ function setupMouseClickHandlers() {
                 playChannel(targetChannel);
             }
         }
+    });
+
+    el.channelsList.addEventListener('contextmenu', (e) => {
+        const item = e.target.closest('.list-item');
+        if (!item) return;
+        e.preventDefault();
+        const index = parseInt(item.dataset.index);
+        const list = state.channelsByFolder[state.folders[state.selectedFolderIndex]] || [];
+        state.focusedChannelIndex = index;
+        state.activeColumn = 'channels';
+        toggleTvFav(list[index]);
     });
 
     el.video.addEventListener('click', (e) => {
@@ -754,8 +834,8 @@ function lsGet(k, d) {
     try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; }
 }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
-function favKey() { return 'iptv_vod_favs_' + vod.kind; }
-function histKey() { return 'iptv_vod_hist_' + vod.kind; }
+function favKey() { return 'iptv_vod_favs'; }
+function histKey() { return 'iptv_vod_hist'; }
 function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -783,37 +863,40 @@ function addHistory(card) {
 }
 
 /* ---------- montagem dos cartões a partir da lista M3U ---------- */
-function buildVodCards() {
-    vod.kind = state.selectedCategory;
+function buildVodCards(sets) {
     vod.cards = [];
     vod.byKey = {};
 
-    if (vod.kind === 'movies') {
-        state.channels.forEach(function (ch) {
-            const c = { key: ch.url, title: ch.name, logo: ch.logo || '', kind: 'movie', group: ch.folder, url: ch.url };
-            vod.cards.push(c);
-            vod.byKey[c.key] = c;
-        });
-    } else {
-        const map = {};
-        state.channels.forEach(function (ch) {
-            const m = ch.name.match(/^(.*?)[\s\-_.]*S(\d{1,2})\s*E(\d{1,4})/i);
-            const title = (m && m[1].trim()) ? m[1].trim() : ch.name;
-            const season = m ? parseInt(m[2], 10) : 1;
-            const ep = m ? parseInt(m[3], 10) : 1;
-            const key = 'S:' + ch.folder + '|' + title;
-            if (!map[key]) {
-                map[key] = { key: key, title: title, logo: '', kind: 'series', group: ch.folder, eps: [] };
-                vod.cards.push(map[key]);
-                vod.byKey[key] = map[key];
-            }
-            if (!map[key].logo && ch.logo) map[key].logo = ch.logo;
-            map[key].eps.push({ name: ch.name, url: ch.url, season: season, ep: ep });
-        });
-        vod.cards.forEach(function (c) {
-            c.eps.sort(function (a, b) { return (a.season - b.season) || (a.ep - b.ep); });
-        });
-    }
+    sets.forEach(function (set) {
+        if (set.kind === 'movies') {
+            set.channels.forEach(function (ch) {
+                const c = { key: ch.url, title: ch.name, logo: ch.logo || '', kind: 'movie', group: ch.folder, url: ch.url };
+                vod.cards.push(c);
+                vod.byKey[c.key] = c;
+            });
+        } else {
+            const map = {};
+            const created = [];
+            set.channels.forEach(function (ch) {
+                const m = ch.name.match(/^(.*?)[\s\-_.]*S(\d{1,2})\s*E(\d{1,4})/i);
+                const title = (m && m[1].trim()) ? m[1].trim() : ch.name;
+                const season = m ? parseInt(m[2], 10) : 1;
+                const ep = m ? parseInt(m[3], 10) : 1;
+                const key = 'S:' + ch.folder + '|' + title;
+                if (!map[key]) {
+                    map[key] = { key: key, title: title, logo: '', kind: 'series', group: ch.folder, eps: [] };
+                    created.push(map[key]);
+                    vod.cards.push(map[key]);
+                    vod.byKey[key] = map[key];
+                }
+                if (!map[key].logo && ch.logo) map[key].logo = ch.logo;
+                map[key].eps.push({ name: ch.name, url: ch.url, season: season, ep: ep });
+            });
+            created.forEach(function (c) {
+                c.eps.sort(function (a, b) { return (a.season - b.season) || (a.ep - b.ep); });
+            });
+        }
+    });
 
     vod.folders = [];
     vod.cards.forEach(function (c) { if (vod.folders.indexOf(c.group) === -1) vod.folders.push(c.group); });
@@ -836,14 +919,41 @@ function catLabel() {
 }
 
 /* ---------- início ---------- */
-function startVod() {
-    buildVodCards();
+function startVodMixed() {
+    const sets = [];
+    ['movies', 'series'].forEach(function (cat) {
+        state.selectedCategory = cat;
+        parseM3U(state.m3uText);
+        sets.push({ kind: cat, channels: state.channels.slice() });
+    });
+    state.selectedCategory = 'mixed';
+    startVod(sets, state.vodEntryCat);
+}
+
+function migrateVodStores() {
+    ['favs', 'hist'].forEach(function (t) {
+        ['movies', 'series'].forEach(function (k) {
+            const old = lsGet('iptv_vod_' + t + '_' + k, null);
+            if (old && old.length) {
+                const cur = lsGet('iptv_vod_' + t, []);
+                lsSet('iptv_vod_' + t, cur.concat(old.filter(function (x) { return cur.indexOf(x) === -1; })));
+            }
+            try { localStorage.removeItem('iptv_vod_' + t + '_' + k); } catch (e) {}
+        });
+    });
+}
+
+function startVod(sets, entryCat) {
+    if (!sets) sets = [{ kind: state.selectedCategory, channels: state.channels }];
+    buildVodCards(sets);
     hideStatus();
     if (!vod.cards.length) {
         showStatus('Nenhum conteúdo encontrado para esta categoria.', true);
         return;
     }
+    migrateVodStores();
     state.vodActive = true;
+    document.body.classList.add('vod-on');
     el.overlay.classList.add('hidden');
     el.overlay.classList.remove('visible');
     $v('vod-root').classList.add('active');
@@ -864,10 +974,18 @@ function startVod() {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') vod.seekRepeat = 0;
     });
     window.addEventListener('resize', positionWin);
+    setupVodPointer();
 
     vod.catId = '__all';
     vod.catIndex = 0;
-    vodShowHome('cats', 0);
+    if (entryCat) {
+        vod.catId = entryCat;
+        const ci = vod.cats.map(function (c) { return c.id; }).indexOf(entryCat);
+        vod.catIndex = ci === -1 ? 0 : ci;
+    }
+    const startList = getCatList(vod.catId);
+    if (entryCat && startList.length) vodShowHome('grid', 0);
+    else vodShowHome('cats', vod.catIndex);
 }
 
 /* ---------- tela principal (categorias + capas) ---------- */
@@ -926,6 +1044,7 @@ function renderGrid() {
     g.innerHTML = slice.length
         ? slice.map(function (c, i) { return cardHtml(c, i, 'grid'); }).join('')
         : '<div class="vod-empty">' + emptyText() + '</div>';
+    g.onscroll = function () { if (g.scrollTop + g.clientHeight > g.scrollHeight - 700) loadMore(); };
     const t = $v('vod-total'); if (t) t.textContent = 'Total: ' + vod.list.length;
     const l = $v('vod-catlabel'); if (l) l.textContent = catLabel();
 }
@@ -937,15 +1056,19 @@ function emptyText() {
     return 'Nada por aqui.';
 }
 
+function loadMore() {
+    if (vod.shown >= vod.list.length) return;
+    const g = $v('vod-grid');
+    if (!g) return;
+    const from = g.children.length;
+    vod.shown = Math.min(vod.list.length, vod.shown + GRID_STEP);
+    g.insertAdjacentHTML('beforeend', vod.list.slice(from, vod.shown).map(function (c, k) {
+        return cardHtml(c, from + k, 'grid');
+    }).join(''));
+}
+
 function ensureShown(i) {
-    if (i >= vod.shown - GRID_COLS * 2 && vod.shown < vod.list.length) {
-        const g = $v('vod-grid');
-        const from = g.children.length;
-        vod.shown = Math.min(vod.list.length, vod.shown + GRID_STEP);
-        g.insertAdjacentHTML('beforeend', vod.list.slice(from, vod.shown).map(function (c, k) {
-            return cardHtml(c, from + k, 'grid');
-        }).join(''));
-    }
+    if (i >= vod.shown - GRID_COLS * 2) loadMore();
 }
 
 function setCat(i) {
@@ -1189,6 +1312,7 @@ function vodBack() {
 
 function vodKeys(e) {
     if (!state.vodActive) return;
+    document.body.classList.remove('use-pointer');
     if (vod.fullscreen) { playerKeys(e); return; }
     if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack') {
         e.preventDefault();
@@ -1513,6 +1637,7 @@ function onVodEnded() {
 /* ---------- player em tela cheia ---------- */
 function enterFullscreen() {
     vod.fullscreen = true;
+    document.body.classList.add('vod-fs');
     $v('vod-root').classList.add('fs');
     el.video.classList.remove('vod-window', 'winfocus');
     el.video.style.cssText = '';
@@ -1530,6 +1655,7 @@ function enterFullscreen() {
 function exitFullscreen() {
     saveProgress(true);
     vod.fullscreen = false;
+    document.body.classList.remove('vod-fs');
     closeSettings();
     clearTimeout(vod.uiTimer);
     $v('vod-root').classList.remove('fs');
@@ -1619,8 +1745,8 @@ function playerKeys(e) {
 /* Configurações: velocidade e ajuste da imagem */
 function renderSettings() {
     $v('vod-settings').innerHTML =
-        '<div class="vod-set-row' + (vod.settingsRow === 0 ? ' on' : '') + '"><span>Velocidade</span><b>' + SPEEDS[vod.speedIdx] + 'x</b></div>' +
-        '<div class="vod-set-row' + (vod.settingsRow === 1 ? ' on' : '') + '"><span>Imagem</span><b>' + (vod.fitCover ? 'Preencher' : 'Ajustar') + '</b></div>';
+        '<div class="vod-set-row' + (vod.settingsRow === 0 ? ' on' : '') + '" data-a="speed"><span>Velocidade</span><b>' + SPEEDS[vod.speedIdx] + 'x</b></div>' +
+        '<div class="vod-set-row' + (vod.settingsRow === 1 ? ' on' : '') + '" data-a="fit"><span>Imagem</span><b>' + (vod.fitCover ? 'Preencher' : 'Ajustar') + '</b></div>';
 }
 function openSettings() {
     vod.settingsOpen = true;
@@ -1652,4 +1778,171 @@ function settingsKeys(e) {
     }
     renderSettings();
     showPlayerUI();
+}
+
+
+
+/* ====================================================================
+   TV AO VIVO: FAVORITOS (segure o OK sobre um canal para favoritar)
+   ==================================================================== */
+function getTvFavs() {
+    try { return JSON.parse(localStorage.getItem(TV_FAV_KEY)) || []; } catch (e) { return []; }
+}
+function isTvFav(ch) { return getTvFavs().indexOf(ch.url) !== -1; }
+
+function refreshTvFavList() {
+    const list = [];
+    getTvFavs().forEach(u => {
+        const ch = state.channels.find(c => c.url === u);
+        if (ch) list.push(ch);
+    });
+    state.channelsByFolder[FAV_FOLDER] = list;
+}
+
+function buildTvFavFolder() {
+    if (state.selectedCategory !== 'tv') return;
+    FAV_FOLDER = state.folders.indexOf('Favoritos') !== -1 ? 'Meus Favoritos' : 'Favoritos';
+    state.folders.unshift(FAV_FOLDER);
+    refreshTvFavList();
+}
+
+function toggleTvFav(ch) {
+    if (!ch) return;
+    const f = getTvFavs();
+    const i = f.indexOf(ch.url);
+    const added = i === -1;
+    if (added) f.unshift(ch.url); else f.splice(i, 1);
+    try { localStorage.setItem(TV_FAV_KEY, JSON.stringify(f)); } catch (e) {}
+    refreshTvFavList();
+
+    const folderName = state.folders[state.selectedFolderIndex];
+    const list = state.channelsByFolder[folderName] || [];
+    if (list.length === 0) {
+        state.activeColumn = 'folders';
+        state.focusedFolderIndex = state.selectedFolderIndex;
+    } else if (state.focusedChannelIndex >= list.length) {
+        state.focusedChannelIndex = list.length - 1;
+    }
+    renderChannels(folderName);
+    updateFocusDOM();
+    showToast(ch.name, added ? 'Adicionado aos favoritos' : 'Removido dos favoritos');
+}
+
+function startEnterPress(ch) {
+    if (!ch || state.enterPressed) return;
+    state.enterPressed = true;
+    state.longDone = false;
+    state.enterChannel = ch;
+    state.enterTimer = setTimeout(() => {
+        state.longDone = true;
+        toggleTvFav(ch);
+    }, LONG_PRESS_MS);
+}
+
+function setupEnterKeyUp() {
+    document.addEventListener('keyup', (e) => {
+        if (e.key !== 'Enter' || !state.enterPressed) return;
+        clearTimeout(state.enterTimer);
+        state.enterPressed = false;
+        if (state.longDone) { state.longDone = false; return; }
+        const ch = state.enterChannel;
+        if (!ch) return;
+        const isAlreadyPlaying = state.playingChannel && state.playingChannel.url === ch.url;
+        if (isAlreadyPlaying) toggleMenu(false);
+        else playChannel(ch);
+    });
+}
+
+
+
+/* ====================================================================
+   MOUSE E TOQUE (computador e celular) para Filmes e Séries
+   ==================================================================== */
+const FAKE_ENTER = { key: 'Enter', preventDefault: function () {} };
+
+function setupVodPointer() {
+    const setPointer = function () { document.body.classList.add('use-pointer'); };
+    ['mousemove', 'mousedown', 'touchstart'].forEach(function (ev) {
+        document.addEventListener(ev, setPointer, { passive: true });
+    });
+
+    // cliques nas categorias, capas, botões, teclado virtual, episódios...
+    $v('vod-root').addEventListener('click', vodClick);
+
+    // clique no vídeo: na janela abre a tela cheia; em tela cheia pausa/continua
+    el.video.addEventListener('click', function () {
+        if (!state.vodActive) return;
+        if (vod.fullscreen) {
+            if ($v('vod-player-ui').classList.contains('idle')) showPlayerUI(); else togglePlay();
+        } else if (vod.view === 'detail') {
+            enterFullscreen();
+        }
+    });
+
+    // botão Voltar para mouse/toque
+    $v('vod-backbtn').addEventListener('click', function () {
+        if (vod.fullscreen) { vodBack(); return; }
+        if (vod.view === 'home') { window.location.reload(); return; }
+        vodBack();
+    });
+
+    // controles do player em tela cheia
+    $v('vod-player-ui').addEventListener('click', vodPlayerClick);
+}
+
+function vodClick(e) {
+    if (!state.vodActive || vod.fullscreen) return;
+    let t = e.target;
+    const root = $v('vod-root');
+    while (t && t !== root && !(t.getAttribute && t.getAttribute('data-z'))) t = t.parentNode;
+    if (!t || t === root) return;
+    const z = t.getAttribute('data-z');
+    const i = parseInt(t.getAttribute('data-i'), 10);
+
+    if (vod.view === 'home') {
+        vod.zone = z; vod.idx = i;
+        if (z === 'cats') { setCat(i); flushCat(); }
+        else { applyFocus(); homeKeys(FAKE_ENTER); }
+    } else if (vod.view === 'search') {
+        vod.zone = z; vod.idx = i;
+        if (z === 'kb') { vod.kbR = Math.floor(i / KB_COLS); vod.kbC = i % KB_COLS; }
+        applyFocus();
+        searchKeys(FAKE_ENTER);
+    } else if (vod.view === 'detail') {
+        vod.zone = z; vod.idx = i;
+        applyFocus();
+        detailEnter();
+    }
+}
+
+function vodPlayerClick(e) {
+    if (!vod.fullscreen) return;
+    let t = e.target;
+    const ui = $v('vod-player-ui');
+    while (t && t !== ui && !(t.getAttribute && t.getAttribute('data-a'))) t = t.parentNode;
+    if (!t || t === ui) return;
+    const a = t.getAttribute('data-a');
+    showPlayerUI();
+
+    if (a === 'rew') { vod.seekRepeat = 0; vodSeek(-1); }
+    else if (a === 'ff') { vod.seekRepeat = 0; vodSeek(1); }
+    else if (a === 'play') { togglePlay(); }
+    else if (a === 'set') { if (vod.settingsOpen) closeSettings(); else openSettings(); }
+    else if (a === 'close') { exitFullscreen(); }
+    else if (a === 'speed') {
+        vod.speedIdx = (vod.speedIdx + 1) % SPEEDS.length;
+        el.video.playbackRate = SPEEDS[vod.speedIdx];
+        renderSettings();
+    } else if (a === 'fit') {
+        vod.fitCover = !vod.fitCover;
+        el.video.style.objectFit = vod.fitCover ? 'cover' : 'contain';
+        renderSettings();
+    } else if (a === 'track') {
+        const r = t.getBoundingClientRect();
+        const v = el.video;
+        if (isFinite(v.duration) && r.width > 0) {
+            v.currentTime = Math.max(0, Math.min(v.duration - 1, ((e.clientX - r.left) / r.width) * v.duration));
+            updateBar();
+        }
+    }
 }
