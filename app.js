@@ -1754,7 +1754,7 @@ function stopStream() {
 }
 
 // Abre uma mídia. opts: live, hlsConfig, onPlaying, onBlocked, onFail
-function loadStream(url, opts) {
+function loadStreamOne(url, opts) {
     const o = opts || {};
     const v = el.video;
     const token = ++streamToken;
@@ -1779,6 +1779,7 @@ function loadStream(url, opts) {
         failed = true;
         clearTimeout(streamWatch);
         console.warn('Falha ao reproduzir:', url, why);
+        if (o.quick) { if (o.onFail) o.onFail(why || lastErr); return; }
         // Diagnóstico: mostra na tela o motivo real para descobrir o problema no Android
         probeUrl(url, function (rede) {
             if (stale()) return;
@@ -1824,7 +1825,7 @@ function loadStream(url, opts) {
         v.src = url;
         v.load();
         playNow();
-        arm(hlsLike ? 25000 : 40000);
+        arm(o.quick ? 12000 : (hlsLike ? 20000 : 40000));
     }
 
     v.onplaying = ok;
@@ -1858,9 +1859,49 @@ function loadStream(url, opts) {
         });
         hls.loadSource(url);
         hls.attachMedia(v);
-        arm(25000);
+        arm(o.quick ? 10000 : 15000);
     });
 }
+
+// Página https não pode abrir vídeo http (o navegador bloqueia). Então, quando o link do
+// vídeo é http, tenta antes: (1) o mesmo caminho pelo servidor https do login, (2) o mesmo
+// endereço em https. Se nenhum funcionar, mostra o erro com o diagnóstico.
+function mixedCandidates(url) {
+    if (location.protocol !== 'https:' || !/^http:\/\//i.test(url)) return [];
+    const list = [];
+    const m = /^http:\/\/[^\/]+(\/(?:live|movie|series)\/.+)$/i.exec(url);
+    let base = '';
+    if (state.api && state.api.base) base = state.api.base;
+    else if (/\/get\.php\?/.test(state.m3uUrl || '')) base = String(state.m3uUrl).replace(/\/get\.php.*$/, '');
+    if (m && /^https:\/\//i.test(base)) list.push({ k: 'servidor', u: base.replace(/\/+$/, '') + m[1] });
+    list.push({ k: 'https', u: url.replace(/^http:/i, 'https:') });
+    if (state.mixedPref) list.sort(function (a, b) { return (a.k === state.mixedPref ? -1 : 0) - (b.k === state.mixedPref ? -1 : 0); });
+    return list;
+}
+
+function loadStream(url, opts) {
+    const o = opts || {};
+    const cands = mixedCandidates(url);
+    if (!cands.length) { loadStreamOne(url, o); return; }
+    let i = 0;
+    function copy(extra) {
+        const c = {};
+        for (const k in o) c[k] = o[k];
+        for (const k in extra) c[k] = extra[k];
+        return c;
+    }
+    function tryNext() {
+        if (i >= cands.length) { loadStreamOne(url, o); return; }   // último: mostra o diagnóstico
+        const c = cands[i++];
+        loadStreamOne(c.u, copy({
+            quick: true,
+            onFail: tryNext,
+            onPlaying: function () { state.mixedPref = c.k; if (o.onPlaying) o.onPlaying(); }
+        }));
+    }
+    tryNext();
+}
+
 
 // Troca .ts por .m3u8 em links de canal ao vivo (o player só entende HLS)
 function toHlsUrl(url) {
