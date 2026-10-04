@@ -1,5 +1,13 @@
 // Constants
+// Lista embutida (botão "TV grátis")
 const M3U_URL = 'https://raw.githubusercontent.com/RicardoDark/iptv01/refs/heads/main/minhalista.m3u';
+
+// Dados que já aparecem preenchidos na tela de login (dá para editar na tela)
+const DEFAULT_USER = '10203040';
+const DEFAULT_PASS = '40506070';
+const DEFAULT_SERVER = 'https://cinepulse.rtvplay.workers.dev/';
+const LOGIN_KEY = 'iptv_login_data';     // últimos dados digitados (preenche a tela de login)
+const SESSION_KEY = 'iptv_session';       // login ativo: enquanto existir, o app abre direto na tela inicial
 const STORAGE_LAST_CHANNEL_KEY = 'iptv_last_played_channel';
 const TV_FAV_KEY = 'iptv_tv_favs';
 const LONG_PRESS_MS = 700;
@@ -25,7 +33,11 @@ let state = {
     splashTopIndex: 1, // 0: TV Favoritos, 1: Favoritos (coração), 2: Histórico
     startFavorites: false,
     vodEntryCat: null,
-    m3uText: '',
+    m3uUrl: M3U_URL,
+    m3uCache: {},
+    parsed: null,
+    api: null,
+    fatal: false,
     enterPressed: false,
     enterTimer: null,
     enterChannel: null,
@@ -58,6 +70,7 @@ window.addEventListener('DOMContentLoaded', () => {
     el.overlay.classList.add('hidden');
 
     setupSplashNavigation();
+    setupLogin();
 });
 
 function setupSplashNavigation() {
@@ -79,14 +92,16 @@ function splashTopButtons() {
     return [
         document.getElementById('btn-tvfav'),
         document.getElementById('btn-vodfav'),
-        document.getElementById('btn-vodhist')
+        document.getElementById('btn-vodhist'),
+        document.getElementById('btn-logout')
     ];
 }
 
 function splashTopAction(i) {
     if (i === 0) selectCategoryAndStart('tv', { tvFavorites: true });
     else if (i === 1) selectCategoryAndStart('mixed', { vodCat: '__fav' });
-    else selectCategoryAndStart('mixed', { vodCat: '__hist' });
+    else if (i === 2) selectCategoryAndStart('mixed', { vodCat: '__hist' });
+    else logoutApp();
 }
 
 function updateSplashFocus() {
@@ -104,6 +119,7 @@ function updateSplashFocus() {
 
 function handleSplashKeys(e) {
     if (el.splash.classList.contains('hidden')) return;
+    if (!el.splash.classList.contains('splash-visible')) return;
 
     if (state.splashZone === 'cards') {
         if (e.key === 'ArrowRight') {
@@ -131,7 +147,7 @@ function handleSplashKeys(e) {
     } else {
         if (e.key === 'ArrowRight') {
             e.preventDefault();
-            state.splashTopIndex = Math.min(2, state.splashTopIndex + 1);
+            state.splashTopIndex = Math.min(3, state.splashTopIndex + 1);
             updateSplashFocus();
         } else if (e.key === 'ArrowLeft') {
             e.preventDefault();
@@ -160,28 +176,65 @@ function selectCategoryAndStart(category, opts) {
 }
 
 function startApp() {
-    showStatus('Carregando lista de canais...');
-    fetch(M3U_URL)
-        .then(response => {
-            if (!response.ok) throw new Error('Não foi possível baixar a lista M3U.');
-            return response.text();
-        })
-        .then(data => {
-            state.m3uText = data;
-            if (state.selectedCategory === 'mixed') {
+    const cat = state.selectedCategory;
+    const wantsVod = (cat === 'movies' || cat === 'series' || cat === 'mixed');
+
+    // Filmes e séries: API do servidor com cache (abre na hora se já foi carregado antes).
+    if (wantsVod && state.api) {
+        const kinds = cat === 'mixed' ? ['movies', 'series'] : [cat];
+        showStatus(cat === 'series' ? 'Carregando séries...' :
+                   cat === 'movies' ? 'Carregando filmes...' : 'Carregando filmes e séries...');
+        Promise.all(kinds.map(getApiKind)).then(function (sets) {
+            const total = sets.reduce(function (n, x) { return n + x.cards.length; }, 0);
+            return { ok: total > 0, sets: sets };
+        }, function (err) {
+            console.warn('API de filmes/séries falhou, usando a lista M3U:', err);
+            return { ok: false };
+        }).then(function (res) {
+            if (res.ok) {
                 hideStatus();
+                startVod(res.sets, state.vodEntryCat);
+            } else {
+                startFromM3U();
+            }
+        });
+        return;
+    }
+    startFromM3U();
+}
+
+function emptyListMessage(label, all) {
+    if (!all.total) return 'A lista veio vazia. Confira o usuário, a senha e o link.';
+    return 'Nenhum conteúdo de ' + label + ' encontrado.\nA lista tem ' + all.total + ' itens (TV: ' + all.tv.length +
+        ', Filmes: ' + all.movies.length + ', Séries: ' + all.series.length + ').';
+}
+
+function startFromM3U() {
+    showStatus('Carregando lista... (só demora na primeira vez)');
+    loadAllParsed()
+        .then(all => {
+            const cat = state.selectedCategory;
+
+            if (cat === 'mixed') {
+                hideStatus();
+                if (!all.movies.length && !all.series.length) {
+                    fatalStatus(emptyListMessage('filmes e séries', all));
+                    return;
+                }
                 startVodMixed();
                 return;
             }
-            parseM3U(data);
+
+            parseM3U(all);
             hideStatus();
-            
+
             if (state.folders.length === 0) {
-                showStatus('Nenhum conteúdo encontrado para esta categoria.', true);
+                const label = cat === 'movies' ? 'filmes' : cat === 'series' ? 'séries' : 'TV';
+                fatalStatus(emptyListMessage(label, all));
                 return;
             }
-            
-            if (state.selectedCategory === 'movies' || state.selectedCategory === 'series') {
+
+            if (cat === 'movies' || cat === 'series') {
                 startVod();
                 return;
             }
@@ -190,7 +243,7 @@ function startApp() {
             renderFolders();
             selectFolder(0, false);
             if (!state.startFavorites) loadLastPlayedChannel();
-            
+
             state.activeColumn = 'folders';
             state.focusedFolderIndex = 0;
             if (state.startFavorites) {
@@ -199,86 +252,250 @@ function startApp() {
                 toggleMenu(true);
             }
             updateFocusDOM();
-            
+
             setupKeyboardNavigation();
             setupMouseClickHandlers();
         })
         .catch(err => {
             console.error(err);
-            showStatus('Erro ao carregar a lista IPTV. Verifique sua conexão.', true);
+            fatalStatus('Erro ao carregar a lista IPTV. Verifique a conexão, o usuário, a senha e o link.');
         });
 }
 
-function parseM3U(m3uContent) {
-    const lines = m3uContent.split('\n');
-    let currentChannelMeta = null;
-    
-    state.channels = [];
-    state.folders = [];
-    state.channelsByFolder = {};
+
+/* ====================================================================
+   CACHE LOCAL (IndexedDB)
+   Guarda no aparelho as listas já prontas (TV, filmes, séries).
+   - Se existe cache: abre NA HORA e atualiza em segundo plano.
+   - Se não existe: baixa uma vez e guarda para as próximas.
+   ==================================================================== */
+const CACHE_DB = 'iptv_cache_v1';
+const CACHE_STORE = 'kv';
+const CACHE_FRESH_MS = 30 * 60 * 1000;          // até 30 min: não precisa atualizar
+const CACHE_MAX_MS = 14 * 24 * 60 * 60 * 1000;  // mais de 14 dias: ignora e baixa de novo
+const memCache = {};                            // reserva caso o IndexedDB não funcione
+const inflight = {};                            // evita baixar a mesma coisa duas vezes
+let cacheDbPromise = null;
+
+function cacheDb() {
+    if (cacheDbPromise) return cacheDbPromise;
+    cacheDbPromise = new Promise(function (resolve) {
+        try {
+            if (!window.indexedDB) { resolve(null); return; }
+            const rq = indexedDB.open(CACHE_DB, 1);
+            rq.onupgradeneeded = function () { rq.result.createObjectStore(CACHE_STORE); };
+            rq.onsuccess = function () { resolve(rq.result); };
+            rq.onerror = function () { resolve(null); };
+            rq.onblocked = function () { resolve(null); };
+        } catch (e) { resolve(null); }
+    });
+    return cacheDbPromise;
+}
+
+function cacheGet(key) {
+    if (memCache[key]) return Promise.resolve(memCache[key]);
+    return cacheDb().then(function (db) {
+        if (!db) return null;
+        return new Promise(function (resolve) {
+            try {
+                const rq = db.transaction(CACHE_STORE, 'readonly').objectStore(CACHE_STORE).get(key);
+                rq.onsuccess = function () {
+                    const v = rq.result;
+                    if (v && v.t && (Date.now() - v.t) < CACHE_MAX_MS) { memCache[key] = v; resolve(v); }
+                    else resolve(null);
+                };
+                rq.onerror = function () { resolve(null); };
+            } catch (e) { resolve(null); }
+        });
+    });
+}
+
+function cacheSet(key, data) {
+    const entry = { t: Date.now(), data: data };
+    memCache[key] = entry;
+    return cacheDb().then(function (db) {
+        if (!db) return;
+        return new Promise(function (resolve) {
+            try {
+                const tx = db.transaction(CACHE_STORE, 'readwrite');
+                tx.objectStore(CACHE_STORE).put(entry, key);
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror = function () { resolve(); };
+                tx.onabort = function () { resolve(); };
+            } catch (e) { resolve(); }
+        });
+    });
+}
+
+function cacheIsStale(entry) { return !entry || (Date.now() - entry.t) > CACHE_FRESH_MS; }
+
+// roda a mesma tarefa só uma vez por vez (se já está baixando, reaproveita)
+function once(key, fn) {
+    if (inflight[key]) return inflight[key];
+    const p = fn().then(function (r) { delete inflight[key]; return r; },
+                        function (e) { delete inflight[key]; throw e; });
+    inflight[key] = p;
+    return p;
+}
+
+function acctId() { return state.api ? (state.api.base + '|' + state.api.user) : 'free'; }
+function apiCacheKey(kind) { return 'api:' + acctId() + ':' + kind; }
+function m3uCacheKey(url) { return 'm3u:' + url; }
+
+// ---- Filmes / Séries (API do servidor) ----
+function fetchApiKind(kind) {
+    return once('fetch:' + apiCacheKey(kind), function () {
+        return (kind === 'movies' ? loadMoviesApi() : loadSeriesApi()).then(function (cards) {
+            const set = { kind: kind, cards: cards };
+            if (cards.length) cacheSet(apiCacheKey(kind), set);
+            return set;
+        });
+    });
+}
+
+function getApiKind(kind) {
+    return cacheGet(apiCacheKey(kind)).then(function (entry) {
+        if (entry && entry.data && entry.data.cards && entry.data.cards.length) {
+            if (cacheIsStale(entry)) fetchApiKind(kind).catch(function () {});   // atualiza em segundo plano
+            return entry.data;
+        }
+        return fetchApiKind(kind);
+    });
+}
+
+// ---- TV / lista M3U (já processada) ----
+function downloadParseM3U(url, applyNow) {
+    return once('m3u:' + url, function () {
+        return loadM3U(url).then(function (text) {
+            const all = parseM3UAll(text);
+            delete state.m3uCache[url];                 // libera a memória do texto gigante
+            if (all.total > 0) cacheSet(m3uCacheKey(url), all);
+            return all;
+        });
+    }).then(function (all) {
+        if (applyNow) state.parsed = { url: url, all: all };
+        return all;
+    });
+}
+
+function loadAllParsed() {
+    const url = state.m3uUrl;
+    if (state.parsed && state.parsed.url === url) return Promise.resolve(state.parsed.all);
+    return cacheGet(m3uCacheKey(url)).then(function (entry) {
+        if (entry && entry.data && entry.data.total > 0) {
+            state.parsed = { url: url, all: entry.data };
+            if (cacheIsStale(entry)) downloadParseM3U(url, false).catch(function () {});  // atualiza em segundo plano
+            return entry.data;
+        }
+        return downloadParseM3U(url, true);
+    });
+}
+
+// Pré-carrega tudo em segundo plano enquanto você está na tela inicial
+function prefetchAll() {
+    const steps = [];
+    if (state.api) {
+        steps.push(function () { return getApiKind('movies'); });
+        steps.push(function () { return getApiKind('series'); });
+    }
+    steps.push(function () { return loadAllParsed(); });
+    let i = 0;
+    (function next() {
+        if (i >= steps.length) return;
+        steps[i++]().then(next, next);
+    })();
+}
+
+/* ---------- leitura da lista M3U (uma única vez) e classificação ---------- */
+// Pastas da lista embutida que devem ser tratadas como filmes
+const MOVIE_FOLDER_HINTS = ['movie anime', '123456', 'solty rei', 'steel angel kurumi 2', 'auto da compadecida',
+    'barom one', 'galaxy angel', 'ikkitousen', 'nadja do amanhã', 'thumbelina'];
+const RE_EPISODE = /\bS\d{1,2}\s*E\d{1,4}\b/i;
+const RE_VIDEO_FILE = /\.(mp4|mkv|avi|mov|wmv|flv|m4v|webm)(\?|#|$)/i;
+const RE_LIVE_FILE = /\.(m3u8|ts)(\?|#|$)/i;
+
+function classifyEntry(m) {
+    const u = m.url.toLowerCase();
+    const g = m.folder.toLowerCase();
+    const liveLike = RE_LIVE_FILE.test(u);
+
+    // Servidores IPTV padrão mostram o tipo no próprio link
+    if (u.indexOf('/series/') !== -1) return 'series';
+    if (u.indexOf('/movie/') !== -1) return 'movie';
+    if (u.indexOf('/live/') !== -1) return 'tv';
+    // Link no formato servidor/usuario/senha/numero sem pasta de filme ou série = canal ao vivo
+    if (/^https?:\/\/[^\/]+\/[^\/]+\/[^\/]+\/\d+(\.[a-z0-9]+)?(\?.*)?$/.test(u) &&
+        (liveLike || !/\.[a-z0-9]+(\?.*)?$/.test(u))) return 'tv';
+
+    if (g.indexOf('serie') !== -1 || g.indexOf('série') !== -1 || g.indexOf('season') !== -1 || g.indexOf('temporada') !== -1) return 'series';
+    if (!liveLike && (/\b(novela|dorama)s?\b/.test(g) || RE_EPISODE.test(m.name))) return 'series';
+
+    if (g.indexOf('movie') !== -1 || g.indexOf('vod') !== -1) return 'movie';
+    for (let i = 0; i < MOVIE_FOLDER_HINTS.length; i++) {
+        if (g.indexOf(MOVIE_FOLDER_HINTS[i]) !== -1) return 'movie';
+    }
+    if (RE_VIDEO_FILE.test(u)) return 'movie';
+    if (!liveLike && /filme|cinema|document[aá]rio/.test(g)) return 'movie';
+    return 'tv';
+}
+
+function parseM3UAll(text) {
+    const out = { tv: [], movies: [], series: [], total: 0 };
+    const lines = text.split(/\r?\n/);
+    let meta = null;
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
 
         if (line.startsWith('#EXTINF:')) {
-            currentChannelMeta = {};
-            const groupMatch = line.match(/group-title="([^"]+)"/);
-            const folderName = groupMatch ? groupMatch[1].trim() : 'Outros';
-            currentChannelMeta.folder = folderName;
+            meta = {};
+            const groupMatch = line.match(/group-title="([^"]*)"/);
+            const folderName = groupMatch ? groupMatch[1].trim() : '';
+            meta.folder = folderName || 'Outros';
             const logoMatch = line.match(/tvg-logo="([^"]*)"/);
-            currentChannelMeta.logo = logoMatch ? logoMatch[1].trim() : '';
-            
-            const commaIndex = line.lastIndexOf(',');
-            if (commaIndex !== -1) {
-                currentChannelMeta.name = line.substring(commaIndex + 1).trim();
-            } else {
-                currentChannelMeta.name = 'Sem Nome';
-            }
-        } else if (line.startsWith('http://') || line.startsWith('https://')) {
-            if (currentChannelMeta) {
-                currentChannelMeta.url = line;
-                currentChannelMeta.id = `ch_${state.channels.length}`;
-                
-                const folderLower = currentChannelMeta.folder.toLowerCase();
-                const isMovieFolder = folderLower.includes('movie Anime') || 
-                folderLower.includes('123456') ||
-                folderLower.includes('Solty Rei') ||
-                folderLower.includes('Steel Angel Kurumi 2') ||
-                folderLower.includes('Auto da Compadecida') ||
-                folderLower.includes('Barom One') ||
-                folderLower.includes('Galaxy Angel') ||
-                folderLower.includes('Ikkitousen') ||
-                folderLower.includes('Nadja do Amanhã') || folderLower.includes('movie') || folderLower.includes('vod') || 
-                folderLower.includes('Thumbelina') || 
-                currentChannelMeta.url.endsWith('.mp4') || currentChannelMeta.url.endsWith('.mkv');
+            meta.logo = logoMatch ? logoMatch[1].trim() : '';
 
-                const isSeriesFolder = folderLower.includes('serie') || folderLower.includes('série') || folderLower.includes('season') || folderLower.includes('temporada');
-                
-                let keep = false;
-                if (state.selectedCategory === 'movies' && isMovieFolder && !isSeriesFolder) {
-                    keep = true;
-                } else if (state.selectedCategory === 'series' && isSeriesFolder) {
-                    keep = true;
-                } else if (state.selectedCategory === 'tv' && !isMovieFolder && !isSeriesFolder) {
-                    keep = true;
-                }
-
-                if (keep) {
-                    state.channels.push(currentChannelMeta);
-                    const folderName = currentChannelMeta.folder;
-                    
-                    if (!state.folders.includes(folderName)) {
-                        state.folders.push(folderName);
-                        state.channelsByFolder[folderName] = [];
-                    }
-                    
-                    state.channelsByFolder[folderName].push(currentChannelMeta);
-                }
-                currentChannelMeta = null;
+            // o nome vem depois da primeira vírgula que sobra sem os atributos
+            const stripped = line.replace(/[\w-]+="[^"]*"/g, '');
+            const ci = stripped.indexOf(',');
+            const name = ci !== -1 ? stripped.substring(ci + 1).trim() : '';
+            meta.name = name || 'Sem Nome';
+        } else if (line.charAt(0) !== '#' && /^https?:\/\//i.test(line)) {
+            if (meta) {
+                meta.url = line;
+                meta.id = 'ch_' + out.total;
+                out.total++;
+                const kind = classifyEntry(meta);
+                if (kind === 'movie') out.movies.push(meta);
+                else if (kind === 'series') out.series.push(meta);
+                else out.tv.push(meta);
+                meta = null;
             }
         }
     }
+    return out;
+}
+
+// Separa os canais da categoria escolhida (tv, movies ou series)
+function parseM3U(all) {
+    const cat = state.selectedCategory;
+    const list = cat === 'movies' ? all.movies : cat === 'series' ? all.series : all.tv;
+
+    state.channels = [];
+    state.folders = [];
+    state.channelsByFolder = {};
+    const seen = Object.create(null);
+
+    list.forEach(function (ch) {
+        state.channels.push(ch);
+        if (!seen[ch.folder]) {
+            seen[ch.folder] = true;
+            state.folders.push(ch.folder);
+            state.channelsByFolder[ch.folder] = [];
+        }
+        state.channelsByFolder[ch.folder].push(ch);
+    });
 }
 
 function renderFolders() {
@@ -445,14 +662,14 @@ function playChannel(channel) {
         return;
     }
     
-    if (Hls.isSupported()) {
+    if (window.Hls && Hls.isSupported()) {
         const hls = new Hls({
             maxBufferSize: 0,
             liveSyncDuration: 3,
             enableWorker: true
         });
         state.hls = hls;
-        hls.loadSource(channel.url);
+        hls.loadSource(toHlsUrl(channel.url));
         hls.attachMedia(el.video);
         
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -760,6 +977,11 @@ function showToast(name, folder) {
 }
 
 function handleBackAction() {
+    // Tela de login ou tela inicial: o Voltar sai do app
+    if (loginVisible()) return false;
+    if (el.splash.classList.contains('splash-visible')) return false;
+    // Tela de erro: volta para o início
+    if (state.fatal) { window.location.reload(); return true; }
     if (state.vodActive) return vodBack();
     if (!state.isMenuVisible) {
         toggleMenu(true);
@@ -770,9 +992,516 @@ function handleBackAction() {
         updateFocusDOM();
         return true;
     } else {
+        // volta para a tela inicial (o login continua salvo)
         window.location.reload();
         return true;
     }
+}
+
+/* ====================================================================
+   LOGIN, SESSÃO SALVA E VENCIMENTO DA LISTA
+   - Depois de entrar uma vez, o app lembra e abre direto na tela inicial.
+   - Para trocar de conta, use o botão "Sair" no canto superior direito.
+   ==================================================================== */
+const login = { items: [], idx: 0, busy: false };
+
+function loginVisible() {
+    const s = document.getElementById('login-screen');
+    return !!s && s.classList.contains('login-visible');
+}
+
+function enc(s) { return encodeURIComponent(s); }
+
+function readSession() {
+    try {
+        const s = JSON.parse(localStorage.getItem(SESSION_KEY));
+        if (s && (s.mode === 'free' || (s.mode === 'xtream' && s.user && s.pass && s.link))) return s;
+    } catch (e) {}
+    return null;
+}
+function saveSession(s) { try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch (e) {} }
+
+function logoutApp() {
+    try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+    window.location.reload();
+}
+
+function normalizeServer(link) {
+    let s = String(link || '').trim();
+    if (!s) return '';
+    if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+    s = s.replace(/\/(get|player_api|panel_api)\.php.*$/i, '');
+    return s.replace(/\/+$/, '');
+}
+
+function m3uUrlFor(base, user, pass) {
+    return base + '/get.php?username=' + enc(user) + '&password=' + enc(pass) + '&type=m3u_plus&output=m3u8';
+}
+
+// fetch com tempo limite (funciona mesmo em WebView antigo, sem AbortController)
+function fetchTimeout(url, ms) {
+    return new Promise(function (resolve, reject) {
+        let done = false;
+        const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const timer = setTimeout(function () {
+            if (done) return;
+            done = true;
+            if (ctrl) { try { ctrl.abort(); } catch (e) {} }
+            reject(new Error('timeout'));
+        }, ms);
+        fetch(url, ctrl ? { signal: ctrl.signal } : undefined).then(function (r) {
+            if (done) return;
+            done = true; clearTimeout(timer); resolve(r);
+        }, function (err) {
+            if (done) return;
+            done = true; clearTimeout(timer); reject(err);
+        });
+    });
+}
+
+function loadM3U(url) {
+    if (state.m3uCache[url]) return Promise.resolve(state.m3uCache[url]);
+    return fetchTimeout(url, 120000)
+        .then(function (response) {
+            if (!response.ok) throw new Error('Não foi possível baixar a lista M3U.');
+            return response.text();
+        })
+        .then(function (text) {
+            state.m3uCache[url] = text;
+            return text;
+        });
+}
+
+/* ---------- tela de login ---------- */
+function setupLogin() {
+    const fUser = document.getElementById('login-user');
+    const fPass = document.getElementById('login-pass');
+    const fLink = document.getElementById('login-link');
+    const btnLogin = document.getElementById('btn-login');
+    const btnFree = document.getElementById('btn-free');
+
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(LOGIN_KEY)); } catch (e) {}
+    fUser.value = (saved && saved.user) || DEFAULT_USER;
+    fPass.value = (saved && saved.pass) || DEFAULT_PASS;
+    fLink.value = (saved && saved.link) || DEFAULT_SERVER;
+
+    login.items = [fUser, fPass, fLink, btnLogin, btnFree];
+    login.idx = 3; // começa no botão Entrar
+
+    login.items.forEach(function (it, i) {
+        it.addEventListener('focus', function () { login.idx = i; });
+    });
+
+    // Campos ficam "somente leitura" até tocar ou apertar OK, assim o teclado
+    // do TV Box não abre sozinho enquanto navega com o controle.
+    [fUser, fPass, fLink].forEach(function (inp) {
+        ['mousedown', 'touchstart'].forEach(function (ev) {
+            inp.addEventListener(ev, function () { inp.readOnly = false; }, { passive: true });
+        });
+        inp.addEventListener('blur', function () { inp.readOnly = true; });
+    });
+
+    btnLogin.addEventListener('click', doLogin);
+    btnFree.addEventListener('click', enterFree);
+
+    const sess = readSession();
+    if (sess) {
+        resumeSession(sess);   // já logado: vai direto para a tela inicial
+        return;
+    }
+    document.documentElement.classList.remove('has-session');
+    document.addEventListener('keydown', handleLoginKeys);
+    loginFocus(3);
+}
+
+function loginFocus(i) {
+    login.idx = Math.max(0, Math.min(login.items.length - 1, i));
+    const it = login.items[login.idx];
+    if (it) it.focus({ preventScroll: true });
+}
+
+function loginStopEdit(it) {
+    if (it && it.tagName === 'INPUT') it.readOnly = true;
+}
+
+function loginStartEdit(it) {
+    it.readOnly = false;
+    it.focus({ preventScroll: true });
+    try { const n = it.value.length; it.setSelectionRange(n, n); } catch (e) {}
+}
+
+function handleLoginKeys(e) {
+    if (!loginVisible()) return;
+    const cur = login.items[login.idx];
+    const isInput = cur && cur.tagName === 'INPUT';
+    const editing = isInput && !cur.readOnly;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        loginStopEdit(cur);
+        loginFocus(login.idx + 1);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        loginStopEdit(cur);
+        loginFocus(login.idx - 1);
+    } else if (e.key === 'ArrowRight' && !isInput) {
+        e.preventDefault();
+        if (login.idx === 3) loginFocus(4);
+    } else if (e.key === 'ArrowLeft' && !isInput) {
+        e.preventDefault();
+        if (login.idx === 4) loginFocus(3);
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (isInput) {
+            if (editing) { loginStopEdit(cur); loginFocus(login.idx + 1); }
+            else loginStartEdit(cur);
+        } else if (cur) {
+            cur.click();
+        }
+    }
+}
+
+function loginError(msg) {
+    const box = document.getElementById('login-error');
+    if (!msg) { box.classList.add('hidden'); box.textContent = ''; return; }
+    box.textContent = msg;
+    box.classList.remove('hidden');
+}
+
+function loginBusy(on) {
+    login.busy = on;
+    const b = document.getElementById('btn-login');
+    b.textContent = on ? 'Entrando...' : 'Entrar';
+    b.classList.toggle('busy', on);
+}
+
+function showSplashAfterLogin() {
+    const ls = document.getElementById('login-screen');
+    ls.classList.remove('login-visible');
+    setTimeout(function () { ls.style.display = 'none'; }, 450);
+    document.removeEventListener('keydown', handleLoginKeys);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    el.splash.classList.add('splash-visible');
+    state.splashZone = 'cards';
+    state.splashFocusIndex = 0;
+    updateSplashFocus();
+    setTimeout(prefetchAll, 800);   // baixa/atualiza as listas em segundo plano
+}
+
+// Abre direto na tela inicial usando o último login que deu certo
+function resumeSession(s) {
+    document.getElementById('login-screen').classList.add('instant');
+    if (s.mode === 'free') {
+        state.api = null;
+        state.m3uUrl = M3U_URL;
+        renderExpiry(null);
+        showSplashAfterLogin();
+        return;
+    }
+    const base = normalizeServer(s.link);
+    state.m3uUrl = m3uUrlFor(base, s.user, s.pass);
+    state.api = s.api ? { base: base, user: s.user, pass: s.pass } : null;
+    if (s.api) renderExpiry({ exp_date: s.exp });
+    showSplashAfterLogin();
+    if (s.api) refreshExpiry(s);   // atualiza a data em segundo plano, sem atrapalhar
+}
+
+function refreshExpiry(s) {
+    fetchTimeout(apiUrl(), 15000)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            const info = d && d.user_info;
+            if (!info) return;
+            if (String(info.auth) === '0') { renderExpiry({ invalid: true }); return; }
+            s.exp = (info.exp_date === undefined) ? null : info.exp_date;
+            saveSession(s);
+            renderExpiry(info);
+        })
+        .catch(function () {});
+}
+
+// Botão "TV grátis": usa a lista que já vem embutida no app
+function enterFree() {
+    if (login.busy) return;
+    state.api = null;
+    state.m3uUrl = M3U_URL;
+    saveSession({ mode: 'free' });
+    renderExpiry(null);
+    showSplashAfterLogin();
+}
+
+async function doLogin() {
+    if (login.busy) return;
+    const user = document.getElementById('login-user').value.trim();
+    const pass = document.getElementById('login-pass').value.trim();
+    const link = document.getElementById('login-link').value.trim();
+
+    if (!user || !pass || !link) { loginError('Preencha usuário, senha e link.'); return; }
+    const base = normalizeServer(link);
+
+    loginError('');
+    loginBusy(true);
+
+    const tryApi = { base: base, user: user, pass: pass };
+    const m3uUrl = m3uUrlFor(base, user, pass);
+
+    try {
+        // 1) Valida pelo login do servidor (traz também a data de vencimento)
+        let info = null;
+        try {
+            const old = state.api;
+            state.api = tryApi;
+            const r = await fetchTimeout(apiUrl(), 15000);
+            state.api = old;
+            if (r.ok) {
+                const d = await r.json();
+                if (d && d.user_info) info = d.user_info;
+            }
+        } catch (e) { info = null; state.api = null; }
+
+        if (info && String(info.auth) === '0') {
+            state.api = null;
+            loginError('Usuário ou senha inválidos.');
+            return;
+        }
+
+        // 2) Se o servidor não respondeu ao login, valida baixando a lista
+        if (!info) {
+            const r = await fetchTimeout(m3uUrl, 60000);
+            if (!r.ok) throw new Error('http ' + r.status);
+            const txt = await r.text();
+            if (txt.indexOf('#EXTM3U') === -1) throw new Error('lista inválida');
+            state.m3uCache[m3uUrl] = txt;
+        }
+
+        try { localStorage.setItem(LOGIN_KEY, JSON.stringify({ user: user, pass: pass, link: link })); } catch (e) {}
+        state.m3uUrl = m3uUrl;
+        state.api = info ? tryApi : null;
+        saveSession({
+            mode: 'xtream', user: user, pass: pass, link: link,
+            api: !!info, exp: info ? (info.exp_date === undefined ? null : info.exp_date) : null
+        });
+        renderExpiry(info);
+        showSplashAfterLogin();
+    } catch (err) {
+        console.error(err);
+        loginError('Não foi possível entrar. Confira o link, o usuário e a senha.');
+    } finally {
+        loginBusy(false);
+    }
+}
+
+function fmtDateBR(d) {
+    const p = function (n) { return String(n).padStart(2, '0'); };
+    return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+
+// Mostra a data de vencimento no canto superior esquerdo da tela inicial
+function renderExpiry(info) {
+    const box = document.getElementById('splash-expiry');
+    const main = document.getElementById('splash-expiry-main');
+    const sub = document.getElementById('splash-expiry-sub');
+    box.classList.remove('warn', 'expired');
+
+    if (!info) { box.classList.add('hidden'); return; }
+
+    if (info.invalid) {
+        main.textContent = 'Login inválido';
+        sub.textContent = 'Use o botão Sair e entre de novo';
+        box.classList.add('expired');
+        box.classList.remove('hidden');
+        return;
+    }
+
+    const raw = info.exp_date;
+    const secs = Number(raw);
+    if (raw === null || raw === undefined || raw === '' || !isFinite(secs) || secs === 0) {
+        main.textContent = 'Sem data de vencimento';
+        sub.textContent = '';
+        box.classList.remove('hidden');
+        return;
+    }
+
+    const d = new Date(secs * 1000);
+    const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
+    main.textContent = 'Vencimento: ' + fmtDateBR(d);
+    if (days < 0) { sub.textContent = 'Lista vencida'; box.classList.add('expired'); }
+    else if (days === 0) { sub.textContent = 'Vence hoje'; box.classList.add('warn'); }
+    else {
+        sub.textContent = days === 1 ? 'Falta 1 dia' : 'Faltam ' + days + ' dias';
+        if (days <= 7) box.classList.add('warn');
+    }
+    box.classList.remove('hidden');
+}
+
+/* ====================================================================
+   API DO SERVIDOR (Filmes e Séries)
+   Filmes e séries são carregados pela API do servidor (leve e rápida).
+   Se a API não responder, o app usa a lista M3U como alternativa.
+   ==================================================================== */
+function apiUrl(action, extra) {
+    const a = state.api;
+    return a.base + '/player_api.php?username=' + enc(a.user) + '&password=' + enc(a.pass) +
+        (action ? '&action=' + action : '') + (extra || '');
+}
+
+function apiJson(action, extra, ms) {
+    return fetchTimeout(apiUrl(action, extra), ms || 90000).then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+    });
+}
+
+function asArray(x) {
+    if (Array.isArray(x)) return x;
+    if (x && typeof x === 'object') return Object.keys(x).map(function (k) { return x[k]; });
+    return [];
+}
+
+function catMapOf(list) {
+    const m = Object.create(null);
+    asArray(list).forEach(function (c) {
+        if (c && c.category_id != null) m[String(c.category_id)] = String(c.category_name || '').trim();
+    });
+    return m;
+}
+
+function streamUrl(kind, id, ext) {
+    const a = state.api;
+    return a.base + '/' + kind + '/' + enc(a.user) + '/' + enc(a.pass) + '/' + id + '.' + (ext || 'mp4');
+}
+
+function loadMoviesApi() {
+    return Promise.all([
+        apiJson('get_vod_categories', '', 30000).catch(function () { return []; }),
+        apiJson('get_vod_streams')
+    ]).then(function (r) {
+        const cm = catMapOf(r[0]);
+        return asArray(r[1]).filter(function (s) { return s && s.stream_id != null; }).map(function (s) {
+            return {
+                key: 'M:' + s.stream_id,
+                title: String(s.name || 'Sem nome').trim(),
+                logo: s.stream_icon || '',
+                kind: 'movie',
+                group: cm[String(s.category_id)] || 'Outros',
+                url: streamUrl('movie', s.stream_id, s.container_extension),
+                vodId: s.stream_id
+            };
+        });
+    });
+}
+
+function loadSeriesApi() {
+    return Promise.all([
+        apiJson('get_series_categories', '', 30000).catch(function () { return []; }),
+        apiJson('get_series')
+    ]).then(function (r) {
+        const cm = catMapOf(r[0]);
+        return asArray(r[1]).filter(function (s) { return s && s.series_id != null; }).map(function (s) {
+            return {
+                key: 'S:' + s.series_id,
+                title: String(s.name || 'Sem nome').trim(),
+                logo: s.cover || '',
+                kind: 'series',
+                group: cm[String(s.category_id)] || 'Outros',
+                eps: [], lazy: true, loaded: false,
+                seriesId: s.series_id,
+                plot: s.plot || '',
+                rating: s.rating || '',
+                releaseDate: s.releaseDate || s.release_date || ''
+            };
+        });
+    });
+}
+
+function loadVodFromApi(cat) {
+    const jobs = [];
+    if (cat === 'movies' || cat === 'mixed') {
+        jobs.push(loadMoviesApi().then(function (cards) { return { kind: 'movies', cards: cards }; }));
+    }
+    if (cat === 'series' || cat === 'mixed') {
+        jobs.push(loadSeriesApi().then(function (cards) { return { kind: 'series', cards: cards }; }));
+    }
+    return Promise.all(jobs);
+}
+
+// Episódios da série são carregados só quando você abre a série
+function loadSeriesEpisodes(card) {
+    return apiJson('get_series_info', '&series_id=' + enc(card.seriesId), 60000).then(function (d) {
+        const eps = [];
+
+        function pushEp(e, hint) {
+            if (!e || e.id == null) return;
+            const sRaw = (e.season != null && e.season !== '') ? e.season : hint;
+            const season = parseInt(sRaw, 10) || 1;
+            const num = parseInt(e.episode_num, 10) || (eps.length + 1);
+            eps.push({
+                name: e.title || ('Episódio ' + num),
+                url: streamUrl('series', e.id, e.container_extension),
+                season: season,
+                ep: num
+            });
+        }
+        function walk(node, hint) {
+            if (Array.isArray(node)) {
+                node.forEach(function (x, i) {
+                    if (Array.isArray(x)) walk(x, String(i + 1));
+                    else if (x && typeof x === 'object') pushEp(x, hint);
+                });
+            } else if (node && typeof node === 'object') {
+                Object.keys(node).forEach(function (k) { walk(node[k], k); });
+            }
+        }
+        walk(d && d.episodes, null);
+
+        eps.sort(function (a, b) { return (a.season - b.season) || (a.ep - b.ep); });
+        const info = (d && d.info) || {};
+        if (info.plot) card.plot = info.plot;
+        if (!card.logo && info.cover) card.logo = info.cover;
+        if (info.rating) card.rating = info.rating;
+        if (info.releaseDate || info.release_date) card.releaseDate = info.releaseDate || info.release_date;
+        card.eps = eps;
+        card.loaded = eps.length > 0;
+        return eps.length > 0;
+    });
+}
+
+function parseRating(r) {
+    const n = parseFloat(r);
+    return (isFinite(n) && n > 0) ? n : 0;
+}
+
+/* ---------- mensagens e erros na tela ---------- */
+function fatalStatus(msg) {
+    state.fatal = true;
+    showStatus(msg + '\n\nPressione OK ou toque na tela para voltar ao início.', true);
+    const ignore = ['VolumeUp', 'VolumeDown', 'VolumeMute', 'Mute'];
+    const back = function (e) {
+        if (e && e.type === 'keydown' && ignore.indexOf(e.key) !== -1) return;
+        document.removeEventListener('keydown', back, true);
+        el.status.removeEventListener('click', back);
+        if (e && e.preventDefault) e.preventDefault();
+        window.location.reload();
+    };
+    document.addEventListener('keydown', back, true);
+    el.status.addEventListener('click', back);
+}
+
+let vodMsgTimer = null;
+function vodMsg(text, ms) {
+    const m = document.getElementById('vod-msg');
+    if (!m) return;
+    m.textContent = text;
+    m.classList.remove('hidden');
+    clearTimeout(vodMsgTimer);
+    vodMsgTimer = setTimeout(function () { m.classList.add('hidden'); }, ms || 5000);
+}
+
+// Troca .ts por .m3u8 em links de canal ao vivo (o player só entende HLS)
+function toHlsUrl(url) {
+    const m = String(url).match(/^(https?:\/\/[^\/]+(?:\/live)?\/[^\/]+\/[^\/]+\/\d+)\.ts(\?.*)?$/i);
+    return m ? m[1] + '.m3u8' + (m[2] || '') : url;
 }
 
 window.AndroidInterface = {
@@ -818,7 +1547,7 @@ const vod = {
     metaCache: {},
     fullscreen: false, settingsOpen: false, settingsRow: 0,
     speedIdx: 1, fitCover: false,
-    uiTimer: null, iconTimer: null, lastSave: 0, seekRepeat: 0, resumeAt: 0, playUrl: null
+    uiTimer: null, iconTimer: null, lastSave: 0, seekRepeat: 0, resumeAt: 0, playUrl: null, openToken: 0
 };
 
 const ICON_SEARCH = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>';
@@ -868,6 +1597,10 @@ function buildVodCards(sets) {
     vod.byKey = {};
 
     sets.forEach(function (set) {
+        if (set.cards) {
+            set.cards.forEach(function (c) { vod.cards.push(c); vod.byKey[c.key] = c; });
+            return;
+        }
         if (set.kind === 'movies') {
             set.channels.forEach(function (ch) {
                 const c = { key: ch.url, title: ch.name, logo: ch.logo || '', kind: 'movie', group: ch.folder, url: ch.url };
@@ -920,12 +1653,11 @@ function catLabel() {
 
 /* ---------- início ---------- */
 function startVodMixed() {
-    const sets = [];
-    ['movies', 'series'].forEach(function (cat) {
-        state.selectedCategory = cat;
-        parseM3U(state.m3uText);
-        sets.push({ kind: cat, channels: state.channels.slice() });
-    });
+    const all = state.parsed.all;
+    const sets = [
+        { kind: 'movies', channels: all.movies },
+        { kind: 'series', channels: all.series }
+    ];
     state.selectedCategory = 'mixed';
     startVod(sets, state.vodEntryCat);
 }
@@ -967,7 +1699,10 @@ function startVod(sets, entryCat) {
     v.addEventListener('canplay', function () { vodSpin(false); });
     v.addEventListener('pause', function () { if (vod.fullscreen) flashIcon(true); });
     v.addEventListener('ended', onVodEnded);
-    v.addEventListener('error', function () { vodSpin(false); });
+    v.addEventListener('error', function () {
+        vodSpin(false);
+        if (state.vodActive && vod.playUrl) vodMsg('Não foi possível reproduzir este título. O formato pode não ser compatível com este aparelho.', 6000);
+    });
 
     document.addEventListener('keydown', vodKeys);
     document.addEventListener('keyup', function (e) {
@@ -1286,6 +2021,7 @@ function restoreView(s) {
 }
 
 function vodBack() {
+    vod.openToken++;
     if (vod.fullscreen) {
         if (vod.settingsOpen) closeSettings(); else exitFullscreen();
         return true;
@@ -1346,6 +2082,17 @@ function computeRelated(card) {
 }
 
 function vodOpenDetail(card, pushCurrent) {
+    if (card.kind === 'series' && card.lazy && !card.loaded) {
+        const token = ++vod.openToken;
+        vodSpin(true);
+        loadSeriesEpisodes(card).catch(function () { return false; }).then(function (ok) {
+            vodSpin(false);
+            if (token !== vod.openToken) return;
+            if (!ok) { vodMsg('Não foi possível carregar os episódios desta série.'); return; }
+            vodOpenDetail(card, pushCurrent);
+        });
+        return;
+    }
     if (pushCurrent) {
         vod.stack.push(captureView());
         if (vod.stack.length > 25) vod.stack.shift();
@@ -1504,6 +2251,22 @@ function playEpisode(ep) {
 /* ---------- sinopse / nota (TMDB, opcional) ---------- */
 function fetchMeta(card) {
     const syn = $v('vod-syn');
+    if (card.plot) {
+        fillMeta(card, { overview: card.plot, nota: parseRating(card.rating), data: card.releaseDate });
+        return;
+    }
+    if (state.api && card.kind === 'movie' && card.vodId != null) {
+        if (vod.metaCache[card.key]) { fillMeta(card, vod.metaCache[card.key]); return; }
+        apiJson('get_vod_info', '&vod_id=' + enc(card.vodId), 20000).then(function (d) {
+            const i = (d && d.info) || {};
+            const m = { overview: i.plot || i.description || '', nota: parseRating(i.rating), data: i.releasedate || i.release_date || '' };
+            vod.metaCache[card.key] = m;
+            if (vod.card === card) fillMeta(card, m);
+        }).catch(function () {
+            if (vod.card === card && $v('vod-syn')) $v('vod-syn').textContent = 'Sinopse não disponível para este título.';
+        });
+        return;
+    }
     if (!TMDB_API_KEY) { syn.textContent = 'Sinopse não disponível para este título.'; return; }
     if (vod.metaCache[card.key]) { fillMeta(card, vod.metaCache[card.key]); return; }
     const q = card.title.replace(/\[[^\]]*\]|\([^)]*\)/g, '').trim();
@@ -1572,11 +2335,14 @@ function vodLoad(url, startAt) {
         hls.loadSource(url);
         hls.attachMedia(v);
         hls.on(Hls.Events.MANIFEST_PARSED, function () { v.play().catch(function () {}); });
+        let tries = 0;
         hls.on(Hls.Events.ERROR, function (ev, d) {
-            if (d.fatal) {
-                if (d.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-                else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-            }
+            if (!d.fatal) return;
+            tries++;
+            if (tries > 4) { vodSpin(false); vodMsg('Não foi possível reproduzir este título.', 6000); return; }
+            if (d.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+            else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+            else { vodSpin(false); vodMsg('Não foi possível reproduzir este título.', 6000); }
         });
     } else {
         v.src = url;

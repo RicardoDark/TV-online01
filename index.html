@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <script>try{if(localStorage.getItem('iptv_session'))document.documentElement.className+=' has-session';}catch(e){}</script>
     <link rel="stylesheet" href="style.css">
     <!-- Local HLS.js Library -->
     <script src="hls.min.js"></script>
@@ -42,8 +43,37 @@
         </div>
     </div>
 
+    <!-- Tela de Login (primeira tela do app) -->
+    <div id="login-screen" class="login-visible">
+        <div class="login-box">
+            <h1 class="login-title">Entrar</h1>
+            <div class="login-sub">Acesse o seu servidor IPTV</div>
+
+            <label class="login-label" for="login-user">Usuário</label>
+            <input id="login-user" class="login-field" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
+
+            <label class="login-label" for="login-pass">Senha</label>
+            <input id="login-pass" class="login-field" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
+
+            <label class="login-label" for="login-link">Link do servidor</label>
+            <input id="login-link" class="login-field" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
+
+            <div id="login-error" class="login-error hidden"></div>
+
+            <div id="btn-login" class="login-btn" tabindex="0">Entrar</div>
+        </div>
+
+        <div id="btn-free" class="login-free" tabindex="0">TV grátis</div>
+    </div>
+
     <!-- Category Selection Splash Screen -->
-    <div id="splash-screen" class="splash-visible">
+    <div id="splash-screen">
+        <!-- Vencimento da lista IPTV (canto superior esquerdo) -->
+        <div id="splash-expiry" class="splash-expiry hidden">
+            <div id="splash-expiry-main" class="splash-expiry-main"></div>
+            <div id="splash-expiry-sub" class="splash-expiry-sub"></div>
+        </div>
+
         <!-- Atalhos no canto: TV Favoritos, Favoritos (filmes e séries) e Histórico -->
         <div class="top-status-bar">
             <div id="btn-tvfav" class="status-icon-item status-pill" tabindex="0" title="TV Favoritos">
@@ -62,6 +92,13 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
                     <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+            </div>
+            <div id="btn-logout" class="status-icon-item" tabindex="0" title="Sair da conta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21" y1="12" x2="9" y2="12"></line>
                 </svg>
             </div>
         </div>
@@ -120,6 +157,8 @@
         <div class="toast-channel-name" id="toast-channel-name">Nome do Canal</div>
         <div class="toast-channel-group" id="toast-channel-group">Grupo do Canal</div>
     </div>
+
+    <div id="vod-msg" class="vod-msg hidden"></div>
 
     <div id="vod-backbtn" class="vod-backbtn">&#8592; Voltar</div>
 
