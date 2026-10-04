@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <script>try{if(localStorage.getItem('iptv_session'))document.documentElement.className+=' has-session';}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=8">
+    <link rel="stylesheet" href="style.css?v=12">
     <!-- Local HLS.js Library -->
     <script src="hls.min.js"></script>
 </head>
@@ -50,10 +50,10 @@
             <div class="login-sub">Acesse o seu servidor IPTV</div>
 
             <label class="login-label" for="login-user">Usuário</label>
-            <input id="login-user" class="login-field" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
+            <input id="login-user" class="login-field" type="text" inputmode="none" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
 
             <label class="login-label" for="login-pass">Senha</label>
-            <input id="login-pass" class="login-field" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
+            <input id="login-pass" class="login-field" type="text" inputmode="none" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
 
             <label class="login-label">Servidor</label>
             <div id="login-link" class="login-field login-select" tabindex="0" role="button">
@@ -61,6 +61,9 @@
                 <span id="login-server-name" class="ls-name"></span>
                 <span class="ls-arrow">&#9654;</span>
             </div>
+
+            <label class="login-label" for="login-custom">Ou digite um link (opcional)</label>
+            <input id="login-custom" class="login-field" type="text" inputmode="none" placeholder="http://meuservidor.com:8080" autocomplete="off" autocapitalize="off" spellcheck="false" readonly>
 
             <div id="login-error" class="login-error hidden"></div>
 
@@ -87,10 +90,11 @@
                 </svg>
                 <span>TV Favoritos</span>
             </div>
-            <div id="btn-vodfav" class="status-icon-item" tabindex="0" title="Favoritos de Filmes e Séries">
+            <div id="btn-vodfav" class="status-icon-item status-pill" tabindex="0" title="Favoritos de Filmes e Séries">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
                 </svg>
+                <span>Filmes e Séries Favoritos</span>
             </div>
             <div id="btn-vodhist" class="status-icon-item" tabindex="0" title="Histórico">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -201,6 +205,6 @@
         <div class="vod-pui-center" id="vod-pui-center"></div>
     </div>
 
-    <script src="app.js?v=8"></script>
+    <script src="app.js?v=14"></script>
 </body>
 </html>

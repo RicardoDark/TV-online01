@@ -39,9 +39,9 @@ const DEFAULT_SERVER = 'https://cinepulse.rtvplay.workers.dev/';
 // Servidores que aparecem na tela de login. A pessoa só vê o NOME; o link fica escondido.
 // Para adicionar o Servidor 4 (ou mais), é só colocar o link aqui.
 const SERVERS = [
-    { name: 'Servidor 1', url: 'https://cinepulse.rtvplay.workers.dev/' },
-    { name: 'Servidor 2', url: 'https://power.rtvplay.workers.dev/' },
-    { name: 'Servidor 3', url: 'http://fasttv.sbs' }
+    { name: 'CinePulse', url: 'https://app01.rtvplay.workers.dev/' },
+    { name: 'Power', url: 'https://app02.rtvplay.workers.dev/' },
+    { name: 'P2 player stremio', url: 'https://app03.rtvplay.workers.dev/' }
     // , { name: 'Servidor 4', url: 'COLOQUE_O_LINK_AQUI' }
 ].filter(function (s) { return s.url && s.url.indexOf('COLOQUE') === -1; });
 
@@ -115,6 +115,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     setupSplashNavigation();
     setupLogin();
+    setupBackTrap();
 
     // Tela de "Carregando..." demorando: Voltar/Esc cancela e volta ao início
     document.addEventListener('keydown', function (e) {
@@ -265,7 +266,7 @@ function emptyListMessage(label, all) {
 
 function startFromM3U() {
     showStatus('Carregando lista... (só demora na primeira vez)');
-    loadAllParsed()
+    loadTvSource()
         .then(all => {
             const cat = state.selectedCategory;
 
@@ -417,6 +418,69 @@ function getApiKind(kind) {
     });
 }
 
+// ---- TV ao vivo (API do servidor: traz SÓ canais ao vivo, sem filmes/séries) ----
+function liveCacheKey() { return 'api:' + acctId() + ':live'; }
+
+function loadLiveApi() {
+    const a = state.api;
+    return Promise.all([
+        apiJson('get_live_categories', '', 60000).catch(function () { return []; }),
+        apiJson('get_live_streams', '', 120000)
+    ]).then(function (res) {
+        const cats = Array.isArray(res[0]) ? res[0] : [];
+        const streams = Array.isArray(res[1]) ? res[1] : [];
+        const catName = Object.create(null), catOrder = Object.create(null);
+        cats.forEach(function (c, i) { catName[c.category_id] = String(c.category_name || '').trim(); catOrder[c.category_id] = i; });
+        const out = [];
+        streams.forEach(function (st, i) {
+            if (!st || st.stream_id === undefined || st.stream_id === null) return;
+            const folder = catName[st.category_id] || 'Outros';
+            out.push({
+                folder: folder,
+                name: String(st.name || 'Sem Nome').trim() || 'Sem Nome',
+                logo: st.stream_icon || '',
+                url: a.base + '/live/' + enc(a.user) + '/' + enc(a.pass) + '/' + st.stream_id + '.m3u8',
+                id: 'live_' + st.stream_id,
+                _o: (catOrder[st.category_id] === undefined ? 99999 : catOrder[st.category_id]) * 100000 + i
+            });
+        });
+        out.sort(function (x, y) { return x._o - y._o; });   // mantém a ordem das pastas do servidor
+        return out;
+    });
+}
+
+function getLiveList() {
+    return cacheGet(liveCacheKey()).then(function (entry) {
+        if (entry && entry.data && entry.data.length) {
+            if (cacheIsStale(entry)) fetchLiveList().catch(function () {});
+            return entry.data;
+        }
+        return fetchLiveList();
+    });
+}
+function fetchLiveList() {
+    return once('fetch:' + liveCacheKey(), function () {
+        return loadLiveApi().then(function (list) {
+            if (list.length) cacheSet(liveCacheKey(), list);
+            return list;
+        });
+    });
+}
+
+// Fonte da TV: API (só ao vivo). Se a API falhar, usa a lista M3U como antes.
+function loadTvSource() {
+    if (state.selectedCategory === 'tv' && state.api) {
+        return getLiveList().then(function (list) {
+            if (list && list.length) return { tv: list, movies: [], series: [], total: list.length };
+            return loadAllParsed();
+        }, function (err) {
+            console.warn('API de TV falhou, usando a lista M3U:', err);
+            return loadAllParsed();
+        });
+    }
+    return loadAllParsed();
+}
+
 // ---- TV / lista M3U (já processada) ----
 function downloadParseM3U(url, applyNow) {
     return once('m3u:' + url, function () {
@@ -449,6 +513,7 @@ function loadAllParsed() {
 function prefetchAll() {
     const steps = [];
     if (state.api) {
+        steps.push(function () { return getLiveList(); });
         steps.push(function () { return getApiKind('movies'); });
         steps.push(function () { return getApiKind('series'); });
     }
@@ -489,7 +554,7 @@ function classifyEntry(m) {
         if (g.indexOf(MOVIE_FOLDER_HINTS[i]) !== -1) return 'movie';
     }
     if (RE_VIDEO_FILE.test(u)) return 'movie';
-    if (!liveLike && /filme|cinema|document[aá]rio/.test(g)) return 'movie';
+    if (!liveLike && /filme|cinema|document[aá]rio|locadora|lan[cç]amento/.test(g)) return 'movie';
     return 'tv';
 }
 
@@ -700,6 +765,7 @@ function playChannel(channel) {
     }
 
     showStatus('Carregando mídia...');
+    try { stopStream(); el.video.pause(); } catch (e) {}
     localStorage.setItem(STORAGE_LAST_CHANNEL_KEY, JSON.stringify(channel));
     localStorage.setItem('iptv_last_played_folder', state.folders[state.selectedFolderIndex]);
 
@@ -709,7 +775,25 @@ function playChannel(channel) {
     
     loadStream(toHlsUrl(channel.url), {
         live: true,
-        hlsConfig: { maxBufferSize: 0, liveSyncDuration: 3 },
+        hlsConfig: {
+            maxBufferSize: 0,
+            liveSyncDuration: 3,
+            // --- início rápido ao trocar de canal ---
+            startFragPrefetch: true,        // já baixa o 1º pedaço de vídeo junto com a lista
+            testBandwidth: false,           // não gasta tempo testando a velocidade antes de começar
+            abrEwmaDefaultEstimate: 8000000,
+            maxBufferLength: 12,
+            maxMaxBufferLength: 20,
+            backBufferLength: 5,
+            manifestLoadingTimeOut: 5000,   // antes: 10000 (era o "10 segundos" travado)
+            manifestLoadingMaxRetry: 2,
+            manifestLoadingRetryDelay: 250,
+            levelLoadingTimeOut: 5000,
+            levelLoadingMaxRetry: 2,
+            levelLoadingRetryDelay: 250,
+            fragLoadingTimeOut: 8000,
+            fragLoadingRetryDelay: 250
+        },
         onPlaying: function () {
             hideStatus();
             showToast(channel.name, channel.folder);
@@ -1015,7 +1099,49 @@ function showToast(name, folder) {
     }, 4000);
 }
 
+/* ====================================================================
+   BOTÃO VOLTAR DO APARELHO (celular, controle da TV Box, LDPlayer)
+   O app instalado (APK) fecha quando não há "página anterior". Aqui o app cria
+   uma página anterior de mentira; ao apertar Voltar o aparelho "volta" nela e o
+   app usa esse toque para voltar de tela (filme -> lista -> início).
+   Na tela inicial/login, o 1º Voltar só avisa; o 2º Voltar sai do app.
+   ==================================================================== */
+const backTrap = { on: false, lastKey: 0, exitAt: 0 };
+
+function backTrapPush() {
+    try { history.pushState({ iptvTrap: 1 }, '', location.href); backTrap.on = true; } catch (e) {}
+}
+
+function setupBackTrap() {
+    if (!window.history || !history.pushState) return;
+    backTrapPush();
+    window.addEventListener('popstate', function () {
+        backTrap.on = false;
+        // se a tecla Voltar já foi tratada agora há pouco, não trata de novo
+        if (Date.now() - backTrap.lastKey < 500) { backTrapPush(); return; }
+        const handled = handleBackAction();
+        if (handled !== false) { backTrapPush(); backTrap.exitAt = 0; return; }
+        // tela inicial ou login: avisa e NÃO refaz a armadilha; o próximo Voltar fecha o app
+        backTrap.exitAt = Date.now() + 3000;
+        vodMsg('Aperte Voltar de novo para sair', 3000);
+    });
+    // marca quando o Voltar chegou como tecla (controle) para não tratar em dobro
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack') backTrap.lastKey = Date.now();
+    }, true);
+    // se a armadilha foi gasta (ex.: saiu e voltou), refaz no próximo toque/tecla
+    // (qualquer toque/tecla que não seja Voltar cancela o aviso de sair)
+    ['keydown', 'click', 'touchstart'].forEach(function (ev) {
+        document.addEventListener(ev, function (e) {
+            if (e.type === 'keydown' && (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack')) return;
+            backTrap.exitAt = 0;
+            if (!backTrap.on) backTrapPush();
+        }, true);
+    });
+}
+
 function handleBackAction() {
+    if (lk.open) { lkClose(); return true; }
     if (pin.open) { pinClose(false); return true; }
     // Tela de login ou tela inicial: o Voltar sai do app
     if (loginVisible()) return false;
@@ -1241,6 +1367,7 @@ function setupLogin() {
     const fUser = document.getElementById('login-user');
     const fPass = document.getElementById('login-pass');
     const fLink = document.getElementById('login-link');
+    const fCustom = document.getElementById('login-custom');
     const btnLogin = document.getElementById('btn-login');
     const btnFree = document.getElementById('btn-free');
 
@@ -1256,9 +1383,11 @@ function setupLogin() {
     }
     login.server = sIdx;
     renderServerPick();
+    fCustom.value = (saved && saved.custom) || '';
 
-    login.items = [fUser, fPass, fLink, btnLogin, btnFree];
-    login.idx = 3; // começa no botão Entrar
+    // ordem: 0 usuário, 1 senha, 2 servidor, 3 link manual, 4 Entrar, 5 TV grátis
+    login.items = [fUser, fPass, fLink, fCustom, btnLogin, btnFree];
+    login.idx = 4; // começa no botão Entrar
 
     login.items.forEach(function (it, i) {
         it.addEventListener('focus', function () { login.idx = i; });
@@ -1268,11 +1397,10 @@ function setupLogin() {
     // do TV Box não abre sozinho enquanto navega com o controle.
     fLink.addEventListener('click', function () { changeServer(1); });
 
-    [fUser, fPass].forEach(function (inp) {
-        ['mousedown', 'touchstart'].forEach(function (ev) {
-            inp.addEventListener(ev, function () { inp.readOnly = false; }, { passive: true });
-        });
-        inp.addEventListener('blur', function () { inp.readOnly = true; });
+    // Toque/clique no campo abre o teclado virtual do próprio app
+    // (o teclado do aparelho nunca abre, então a tela não é empurrada).
+    [fUser, fPass, fCustom].forEach(function (inp) {
+        inp.addEventListener('click', function () { lkOpen(inp); });
     });
 
     btnLogin.addEventListener('click', doLogin);
@@ -1285,7 +1413,7 @@ function setupLogin() {
     }
     document.documentElement.classList.remove('has-session');
     document.addEventListener('keydown', handleLoginKeys);
-    loginFocus(3);
+    loginFocus(4);
 }
 
 function loginFocus(i) {
@@ -1302,6 +1430,185 @@ function loginStartEdit(it) {
     it.readOnly = false;
     it.focus({ preventScroll: true });
     try { const n = it.value.length; it.setSelectionRange(n, n); } catch (e) {}
+}
+
+/* ---------- teclado virtual da tela de login ---------- */
+function lkK(k, s, t) { return { k: k, s: s || 2, t: t || 'ch' }; }
+function lkChars(str) { return str.split(' ').map(function (k) { return lkK(k); }); }
+function lkPrep(rows) {
+    rows.forEach(function (row) {
+        let col = row.off ? 2 : 1;
+        row.forEach(function (key) { key.c0 = col; col += key.s; });
+    });
+    return rows;
+}
+function lkBottom(first, last) {
+    return [lkK(first, 3, 'sym'), lkK(':'), lkK('/'), lkK('Espaço', 6, 'space'), lkK(last), lkK('-'), lkK('OK', 3, 'ok')];
+}
+const LK_LAYOUT = {
+    abc: lkPrep([
+        lkChars('1 2 3 4 5 6 7 8 9 0'),
+        lkChars('q w e r t y u i o p'),
+        (function () { const r = lkChars('a s d f g h j k l'); r.off = true; return r; })(),
+        [lkK('Aa', 3, 'shift')].concat(lkChars('z x c v b n m'), [lkK('Apagar', 3, 'back')]),
+        lkBottom('?123', '.')
+    ]),
+    sym: lkPrep([
+        lkChars('1 2 3 4 5 6 7 8 9 0'),
+        lkChars('@ # $ % & * ( ) _ +'),
+        (function () { const r = lkChars('= ! ? " \' ; , ~ ^'); r.off = true; return r; })(),
+        [lkK('\\', 3)].concat(lkChars('< > [ ] { } |'), [lkK('Apagar', 3, 'back')]),
+        lkBottom('ABC', '.')
+    ])
+};
+const LK_NAMES = { 'login-user': 'Usuário', 'login-pass': 'Senha', 'login-custom': 'Link do servidor' };
+const lk = { open: false, inp: null, sym: false, shift: false, r: 1, c: 0, box: null, els: [] };
+
+function lkRows() { return LK_LAYOUT[lk.sym ? 'sym' : 'abc']; }
+
+function lkOpen(inp) {
+    if (lk.open || !inp) return;
+    lk.open = true;
+    lk.inp = inp;
+    lk.sym = false;
+    lk.shift = false;
+    lk.r = 1;
+    lk.c = 0;
+    const box = document.createElement('div');
+    box.id = 'lk-modal';
+    box.innerHTML =
+        '<div class="lk-box">' +
+          '<div class="lk-label">' + (LK_NAMES[inp.id] || 'Digite') + '</div>' +
+          '<div class="lk-input" id="lk-input"></div>' +
+          '<div class="lk-grid" id="lk-grid"></div>' +
+        '</div>';
+    document.body.appendChild(box);
+    lk.box = box;
+    box.addEventListener('click', function (e) {
+        const t = e.target.closest ? e.target.closest('.lk-key') : null;
+        if (!t) return;
+        lk.r = parseInt(t.getAttribute('data-r'), 10);
+        lk.c = parseInt(t.getAttribute('data-c'), 10);
+        lkMark();
+        lkPress(lkRows()[lk.r][lk.c]);
+    });
+    window.addEventListener('keydown', lkKeys, true);   // captura: bloqueia o resto do app enquanto aberto
+    lkRender();
+}
+
+function lkClose() {
+    if (!lk.open) return;
+    window.removeEventListener('keydown', lkKeys, true);
+    if (lk.box && lk.box.parentNode) lk.box.parentNode.removeChild(lk.box);
+    const inp = lk.inp;
+    lk.open = false;
+    lk.box = null;
+    lk.inp = null;
+    if (inp) { try { inp.focus({ preventScroll: true }); } catch (e) {} }
+}
+
+function lkRender() {
+    const g = document.getElementById('lk-grid');
+    if (!g) return;
+    let h = '';
+    lkRows().forEach(function (row, r) {
+        row.forEach(function (key, c) {
+            let label = key.k;
+            let cls = 'lk-key';
+            if (key.t === 'ch' && !lk.sym && /^[a-z]$/.test(label) && lk.shift) label = label.toUpperCase();
+            if (key.t !== 'ch') cls += ' fn';
+            if (key.t === 'shift' && lk.shift) cls += ' on';
+            if (key.t === 'ok') cls += ' ok';
+            h += '<div class="' + cls + '" data-r="' + r + '" data-c="' + c + '" style="grid-column:' + key.c0 + ' / span ' + key.s + '">' + esc(label) + '</div>';
+        });
+    });
+    g.innerHTML = h;
+    lk.els = g.querySelectorAll('.lk-key');
+    lkMark();
+    lkText();
+}
+
+function lkMark() {
+    for (let i = 0; i < lk.els.length; i++) {
+        const e = lk.els[i];
+        const on = parseInt(e.getAttribute('data-r'), 10) === lk.r && parseInt(e.getAttribute('data-c'), 10) === lk.c;
+        e.classList.toggle('lfocus', on);
+    }
+}
+
+function lkText() {
+    const d = document.getElementById('lk-input');
+    if (d && lk.inp) d.innerHTML = '<span class="lk-txt">' + esc(lk.inp.value) + '</span><span class="lk-cur"></span>';
+}
+
+function lkType(ch) {
+    if (!lk.inp) return;
+    lk.inp.value += ch;
+    lkText();
+}
+
+function lkPress(key) {
+    if (!key) return;
+    if (key.t === 'ch') {
+        let ch = key.k;
+        if (!lk.sym && lk.shift && /^[a-z]$/.test(ch)) { ch = ch.toUpperCase(); lk.shift = false; lkType(ch); lkRender(); return; }
+        lkType(ch);
+    } else if (key.t === 'space') {
+        lkType(' ');
+    } else if (key.t === 'back') {
+        if (lk.inp) { lk.inp.value = lk.inp.value.slice(0, -1); lkText(); }
+    } else if (key.t === 'shift') {
+        lk.shift = !lk.shift;
+        lkRender();
+    } else if (key.t === 'sym') {
+        lk.sym = !lk.sym;
+        lk.shift = false;
+        lk.r = 4;
+        lk.c = 0;
+        lkRender();
+    } else if (key.t === 'ok') {
+        lkClose();
+    }
+}
+
+function lkMove(dr, dc) {
+    const rows = lkRows();
+    let r = lk.r, c = lk.c;
+    if (dc) {
+        c = Math.max(0, Math.min(rows[r].length - 1, c + dc));
+    } else {
+        const nr = r + dr;
+        if (nr < 0 || nr >= rows.length) return;
+        const cur = rows[r][c];
+        const center = cur.c0 + cur.s / 2;
+        let best = 0, bd = 1e9;
+        rows[nr].forEach(function (k, i) {
+            const d = Math.abs(k.c0 + k.s / 2 - center);
+            if (d < bd) { bd = d; best = i; }
+        });
+        r = nr; c = best;
+    }
+    lk.r = r; lk.c = c;
+    lkMark();
+}
+
+function lkKeys(e) {
+    if (!lk.open) return;
+    e.stopImmediatePropagation();
+    const k = e.key;
+    if (k === 'Escape' || k === 'GoBack' || k === 'BrowserBack') { e.preventDefault(); lkClose(); return; }
+    if (k === 'Backspace') {
+        e.preventDefault();
+        if (e.repeat && lk.inp && !lk.inp.value) return;
+        if (lk.inp && lk.inp.value) lkPress({ t: 'back' }); else lkClose();
+        return;
+    }
+    if (k === 'Enter') { e.preventDefault(); if (!e.repeat) lkPress(lkRows()[lk.r][lk.c]); return; }
+    if (k === 'ArrowLeft') { e.preventDefault(); lkMove(0, -1); return; }
+    if (k === 'ArrowRight') { e.preventDefault(); lkMove(0, 1); return; }
+    if (k === 'ArrowUp') { e.preventDefault(); lkMove(-1, 0); return; }
+    if (k === 'ArrowDown') { e.preventDefault(); lkMove(1, 0); return; }
+    if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); lkType(k); }   // teclado físico (computador)
 }
 
 function handleLoginKeys(e) {
@@ -1326,15 +1633,14 @@ function handleLoginKeys(e) {
         loginFocus(login.idx - 1);
     } else if (e.key === 'ArrowRight' && !isInput) {
         e.preventDefault();
-        if (login.idx === 3) loginFocus(4);
+        if (login.idx === 4) loginFocus(5);
     } else if (e.key === 'ArrowLeft' && !isInput) {
         e.preventDefault();
-        if (login.idx === 4) loginFocus(3);
+        if (login.idx === 5) loginFocus(4);
     } else if (e.key === 'Enter') {
         e.preventDefault();
         if (isInput) {
-            if (editing) { loginStopEdit(cur); loginFocus(login.idx + 1); }
-            else loginStartEdit(cur);
+            lkOpen(cur);
         } else if (cur) {
             cur.click();
         }
@@ -1425,7 +1731,9 @@ async function doLogin() {
     if (login.busy) return;
     const user = document.getElementById('login-user').value.trim();
     const pass = document.getElementById('login-pass').value.trim();
-    const link = SERVERS.length ? SERVERS[login.server].url : '';
+    // Se digitou um link manual, ele vale no lugar do Servidor 1/2/3
+    const custom = document.getElementById('login-custom').value.trim();
+    const link = custom || (SERVERS.length ? SERVERS[login.server].url : '');
 
     if (!user || !pass) { loginError('Preencha usuário e senha.'); return; }
     if (!link) { loginError('Nenhum servidor configurado.'); return; }
@@ -1466,7 +1774,7 @@ async function doLogin() {
             state.m3uCache[m3uUrl] = txt;
         }
 
-        try { localStorage.setItem(LOGIN_KEY, JSON.stringify({ user: user, pass: pass, link: link })); } catch (e) {}
+        try { localStorage.setItem(LOGIN_KEY, JSON.stringify({ user: user, pass: pass, link: link, custom: custom })); } catch (e) {}
         state.m3uUrl = m3uUrl;
         state.api = info ? tryApi : null;
         saveSession({
@@ -1800,7 +2108,7 @@ function loadStreamOne(url, opts) {
                 ' rede:' + rede +
                 ' | v7 ' + hostInfo(url) +
                 (o.tried ? ' | tentou: ' + o.tried : '');
-            const dica = (rede === 'BLOQUEADA' && location.protocol === 'https:')
+            const dica = (rede === 'BLOQUEADA' && location.protocol === 'https:' && /^http:/i.test(url))
                 ? 'Provável bloqueio: página https abrindo vídeo http. ' : '';
             if (o.onFail) o.onFail(dica + diag);
         });
@@ -1835,7 +2143,7 @@ function loadStreamOne(url, opts) {
         v.src = url;
         v.load();
         playNow();
-        arm(o.quick ? 12000 : (hlsLike ? 20000 : 40000));
+        arm(o.quick ? 7000 : (hlsLike ? 15000 : 40000));
     }
 
     v.onplaying = ok;
@@ -1869,7 +2177,7 @@ function loadStreamOne(url, opts) {
         });
         hls.loadSource(url);
         hls.attachMedia(v);
-        arm(o.quick ? 10000 : 15000);
+        arm(o.quick ? 6000 : 12000);
     });
 }
 
@@ -1877,14 +2185,21 @@ function loadStreamOne(url, opts) {
 // vídeo é http, tenta antes: (1) o mesmo caminho pelo servidor https do login, (2) o mesmo
 // endereço em https. Se nenhum funcionar, mostra o erro com o diagnóstico.
 function mixedCandidates(url) {
-    if (location.protocol !== 'https:' || !/^http:\/\//i.test(url)) return [];
-    const list = [];
-    const m = /^http:\/\/[^\/]+(\/(?:live|movie|series)\/.+)$/i.exec(url);
+    if (location.protocol !== 'https:') return [];
+    const isHttp = /^http:\/\//i.test(url);
     let base = '';
     if (state.api && state.api.base) base = state.api.base;
     else if (/\/get\.php\?/.test(state.m3uUrl || '')) base = String(state.m3uUrl).replace(/\/get\.php.*$/, '');
-    if (m && /^https:\/\//i.test(base)) list.push({ k: 'servidor', u: base.replace(/\/+$/, '') + m[1] });
-    list.push({ k: 'https', u: url.replace(/^http:/i, 'https:') });
+    const m = /^https?:\/\/[^\/]+(\/(?:live|movie|series)\/.+)$/i.exec(url);
+    const list = [];
+    // 1) mesmo caminho pelo servidor https do login (serve para link http E para link https de outro endereço)
+    if (m && /^https:\/\//i.test(base)) {
+        const viaBase = base.replace(/\/+$/, '') + m[1];
+        if (viaBase !== url) list.push({ k: 'servidor', u: viaBase });
+    }
+    // 2) link http: tenta o mesmo endereço em https
+    if (isHttp) list.push({ k: 'https', u: url.replace(/^http:/i, 'https:') });
+    if (!state.mixedPref) { try { state.mixedPref = localStorage.getItem('iptv_mixed_pref') || null; } catch (e) {} }
     if (state.mixedPref) list.sort(function (a, b) { return (a.k === state.mixedPref ? -1 : 0) - (b.k === state.mixedPref ? -1 : 0); });
     return list;
 }
@@ -1908,7 +2223,7 @@ function loadStream(url, opts) {
         loadStreamOne(c.u, copy({
             quick: true,
             onFail: tryNext,
-            onPlaying: function () { state.mixedPref = c.k; if (o.onPlaying) o.onPlaying(); }
+            onPlaying: function () { state.mixedPref = c.k; try { localStorage.setItem('iptv_mixed_pref', c.k); } catch (e) {} if (o.onPlaying) o.onPlaying(); }
         }));
     }
     tryNext();
