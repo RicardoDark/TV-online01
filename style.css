@@ -1243,3 +1243,36 @@ body {
     box-shadow: 0 0 22px rgba(0, 229, 255, 0.8);
 }
 .lk-key.ok.lfocus { background: rgba(24, 190, 105, 0.95); }
+
+
+/* ================================================================
+   Corrige o "risco" que ficava na tela assistindo em tela cheia.
+   Caixas com desfoque (backdrop-filter) escondidas só com opacidade 0
+   deixavam o contorno aparecendo sobre o vídeo em alguns aparelhos.
+   Agora, quando escondidas, ficam totalmente invisíveis e sem desfoque.
+   ================================================================ */
+#status-container.hidden,
+#toast-info.hidden,
+#overlay-menu.hidden,
+#overlay-menu:not(.visible) {
+    visibility: hidden;
+    transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s linear 0.3s;
+}
+#status-container.hidden,
+#toast-info.hidden {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: transparent;
+    box-shadow: none;
+}
+#overlay-menu:not(.visible) .menu-container,
+#overlay-menu.hidden .menu-container {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+    border-right-color: transparent;
+}
+#overlay-menu:not(.visible) .folders-column,
+#overlay-menu.hidden .folders-column {
+    border-right-color: transparent;
+}
