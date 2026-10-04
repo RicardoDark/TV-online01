@@ -16,8 +16,8 @@ let state = {
     hls: null,
     isAndroid: false,
     menuTimeout: null,
-    selectedCategory: null, // 'tv' ou 'movies'
-    splashFocusIndex: 0 // 0 para TV, 1 para Filmes
+    selectedCategory: null, // 'tv', 'movies' ou 'series'
+    splashFocusIndex: 0 // 0: TV, 1: Filmes, 2: Séries
 };
 
 // DOM Elements
@@ -30,6 +30,7 @@ const el = {
     splash: document.getElementById('splash-screen'),
     btnTv: document.getElementById('btn-tv'),
     btnMovies: document.getElementById('btn-movies'),
+    btnSeries: document.getElementById('btn-series'),
     status: document.getElementById('status-container'),
     statusMsg: document.getElementById('status-message'),
     toast: document.getElementById('toast-info'),
@@ -53,30 +54,41 @@ function setupSplashNavigation() {
     
     el.btnTv.addEventListener('click', () => selectCategoryAndStart('tv'));
     el.btnMovies.addEventListener('click', () => selectCategoryAndStart('movies'));
+    el.btnSeries.addEventListener('click', () => selectCategoryAndStart('series'));
 }
 
 function updateSplashFocus() {
+    el.btnTv.classList.remove('focused');
+    el.btnMovies.classList.remove('focused');
+    el.btnSeries.classList.remove('focused');
+
     if (state.splashFocusIndex === 0) {
         el.btnTv.classList.add('focused');
-        el.btnMovies.classList.remove('focused');
-    } else {
+    } else if (state.splashFocusIndex === 1) {
         el.btnMovies.classList.add('focused');
-        el.btnTv.classList.remove('focused');
+    } else {
+        el.btnSeries.classList.add('focused');
     }
 }
 
 function handleSplashKeys(e) {
     if (!el.splash.classList.contains('hidden')) {
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (e.key === 'ArrowRight') {
             e.preventDefault();
-            state.splashFocusIndex = state.splashFocusIndex === 0 ? 1 : 0;
+            state.splashFocusIndex = (state.splashFocusIndex + 1) % 3;
+            updateSplashFocus();
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            state.splashFocusIndex = (state.splashFocusIndex - 1 + 3) % 3;
             updateSplashFocus();
         } else if (e.key === 'Enter') {
             e.preventDefault();
             if (state.splashFocusIndex === 0) {
                 selectCategoryAndStart('tv');
-            } else {
+            } else if (state.splashFocusIndex === 1) {
                 selectCategoryAndStart('movies');
+            } else {
+                selectCategoryAndStart('series');
             }
         }
     }
@@ -155,21 +167,25 @@ function parseM3U(m3uContent) {
                 
                 const folderLower = currentChannelMeta.folder.toLowerCase();
                 const isMovieFolder = folderLower.includes('movie Anime') || 
-				folderLower.includes('123456') ||
-				folderLower.includes('Solty Rei') ||
-				folderLower.includes('Steel Angel Kurumi 2') ||
-				folderLower.includes('Auto da Compadecida') ||
-				folderLower.includes('Barom One') ||
-				folderLower.includes('Galaxy Angel') ||
-				folderLower.includes('Ikkitousen') ||
-				folderLower.includes('Nadja do Amanhã') || folderLower.includes('movie') || folderLower.includes('vod') || 
-				folderLower.includes('Thumbelina') || 
-				currentChannelMeta.url.endsWith('.mp4') || currentChannelMeta.url.endsWith('.mkv');
+                folderLower.includes('123456') ||
+                folderLower.includes('Solty Rei') ||
+                folderLower.includes('Steel Angel Kurumi 2') ||
+                folderLower.includes('Auto da Compadecida') ||
+                folderLower.includes('Barom One') ||
+                folderLower.includes('Galaxy Angel') ||
+                folderLower.includes('Ikkitousen') ||
+                folderLower.includes('Nadja do Amanhã') || folderLower.includes('movie') || folderLower.includes('vod') || 
+                folderLower.includes('Thumbelina') || 
+                currentChannelMeta.url.endsWith('.mp4') || currentChannelMeta.url.endsWith('.mkv');
+
+                const isSeriesFolder = folderLower.includes('serie') || folderLower.includes('série') || folderLower.includes('season') || folderLower.includes('temporada');
                 
                 let keep = false;
-                if (state.selectedCategory === 'movies' && isMovieFolder) {
+                if (state.selectedCategory === 'movies' && isMovieFolder && !isSeriesFolder) {
                     keep = true;
-                } else if (state.selectedCategory === 'tv' && !isMovieFolder) {
+                } else if (state.selectedCategory === 'series' && isSeriesFolder) {
+                    keep = true;
+                } else if (state.selectedCategory === 'tv' && !isMovieFolder && !isSeriesFolder) {
                     keep = true;
                 }
 

@@ -44,10 +44,22 @@
 
     <!-- Category Selection Splash Screen -->
     <div id="splash-screen" class="splash-visible">
+        <!-- Top Right Status Icons (Heart & Clock) -->
+        <div class="top-status-bar">
+            <div class="status-icon-item" title="Favoritos">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                </svg>
+            </div>
+            <div class="status-icon-item" title="Histórico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+            </div>
+        </div>
+
         <div class="splash-content-wrapper">
-            <h1 class="splash-main-title">IPTV PLAYER</h1>
-            <p class="splash-subtitle">Selecione o conteúdo desejado</p>
-            
             <div class="splash-cards-container">
                 <!-- TV Card -->
                 <div id="btn-tv" class="splash-card tv-card focused" tabindex="0">
@@ -64,15 +76,30 @@
                 <div id="btn-movies" class="splash-card movies-card" tabindex="0">
                     <div class="splash-card-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18""></path>
                             <path d="M22 7l-6 5 6 5V7z"></path>
                             <rect x="2" y="6" width="14" height="12" rx="2" ry="2"></rect>
                         </svg>
                     </div>
-                    <span class="splash-card-title">Filmes</span>
+                    <span class="splash-card-title">FILMES</span>
+                </div>
+
+                <!-- Series Card -->
+                <div id="btn-series" class="splash-card series-card" tabindex="0">
+                    <div class="splash-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <line x1="12" y1="2" x2="12" y2="9"></line>
+                            <line x1="12" y1="15" x2="12" y2="22"></line>
+                        </svg>
+                    </div>
+                    <span class="splash-card-title">SERIES</span>
                 </div>
             </div>
         </div>
+
+        <!-- Version Footer -->
+        <div class="splash-version">v1.0.0</div>
     </div>
 
     <!-- Status & Loading Overlay -->
