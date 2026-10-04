@@ -1740,6 +1740,14 @@ function probeUrl(url, cb) {
     } catch (e) { fin('?'); }
 }
 
+function hostInfo(url) {
+    const m = /^https?:\/\/([^\/:]+)(?::(\d+))?/i.exec(url);
+    if (!m) return '';
+    const h = m[1].toLowerCase();
+    const igual = SERVERS.some(function (sv) { return String(sv.url).toLowerCase().indexOf('//' + h) !== -1; });
+    return 'host:' + (igual ? 'do-servidor' : 'outro') + (m[2] ? ' porta:' + m[2] : ' sem-porta');
+}
+
 let streamToken = 0;
 let streamWatch = null;
 
@@ -1789,7 +1797,9 @@ function loadStreamOne(url, opts) {
                 ' stream:' + (m ? m[1].toLowerCase() : '?') +
                 ' hls:' + (window.Hls ? (Hls.isSupported() ? 'ok' : 'semMSE') : 'ausente') +
                 ' net:' + v.networkState + ' rs:' + v.readyState +
-                ' rede:' + rede;
+                ' rede:' + rede +
+                ' | v7 ' + hostInfo(url) +
+                (o.tried ? ' | tentou: ' + o.tried : '');
             const dica = (rede === 'BLOQUEADA' && location.protocol === 'https:')
                 ? 'Provável bloqueio: página https abrindo vídeo http. ' : '';
             if (o.onFail) o.onFail(dica + diag);
@@ -1884,14 +1894,16 @@ function loadStream(url, opts) {
     const cands = mixedCandidates(url);
     if (!cands.length) { loadStreamOne(url, o); return; }
     let i = 0;
+    const tried = [];
     function copy(extra) {
         const c = {};
         for (const k in o) c[k] = o[k];
         for (const k in extra) c[k] = extra[k];
         return c;
     }
-    function tryNext() {
-        if (i >= cands.length) { loadStreamOne(url, o); return; }   // último: mostra o diagnóstico
+    function tryNext(why) {
+        if (i > 0) tried.push(cands[i - 1].k + '=' + (why || '?'));
+        if (i >= cands.length) { loadStreamOne(url, copy({ tried: tried.join(' ') })); return; }   // último: mostra o diagnóstico
         const c = cands[i++];
         loadStreamOne(c.u, copy({
             quick: true,
