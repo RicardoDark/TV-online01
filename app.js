@@ -522,6 +522,9 @@ function parseM3U(all) {
         }
         state.channelsByFolder[ch.folder].push(ch);
     });
+    // pastas adultas vão para o final da lista
+    state.folders = state.folders.filter(function (f) { return !isAdultText(f); })
+        .concat(state.folders.filter(function (f) { return isAdultText(f); }));
 }
 
 function renderFolders() {
@@ -873,6 +876,7 @@ function setupKeyboardNavigation() {
             e.preventDefault();
             const fi = state.focusedFolderIndex;
             askAdultPin(function () {
+                if (state.channelsByFolder[FAV_FOLDER]) refreshTvFavList();
                 renderFolders();
                 selectFolder(fi, true);
                 updateFocusDOM();
@@ -958,6 +962,7 @@ function setupMouseClickHandlers() {
         updateFocusDOM();
         if (isAdultLocked(state.folders[index])) {
             askAdultPin(function () {
+                if (state.channelsByFolder[FAV_FOLDER]) refreshTvFavList();
                 renderFolders();
                 selectFolder(index, false);
                 updateFocusDOM();
@@ -1139,7 +1144,13 @@ function loadM3U(url) {
 const pin = { open: false, value: '', idx: 4, onOk: null, onCancel: null, box: null, keys: [], force: false };
 const PIN_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'APAGAR', '0', 'SAIR'];
 
-function isAdultText(s) { return /xxx/i.test(String(s || '')); }
+// Palavras que bloqueiam (pode editar a lista). Ignora acentos e maiúsculas.
+// Ex.: "Canais | Adultos", "XXX", "Pornô", "Filme com sexo no nome"
+const ADULT_RE = /xxx|18\+|\+18|(^|[^a-z0-9])(porn[a-z]*|sexo|sexy|sex|adultos?|erotic[a-z]*|hentai|playboy|putaria|safada[s]?)($|[^a-z0-9])/;
+function isAdultText(s) {
+    const t = String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    return ADULT_RE.test(t);
+}
 function isAdultLocked(name) { return !adultUnlocked && isAdultText(name); }
 
 function askAdultPin(onOk, onCancel, opts) {
@@ -1836,6 +1847,8 @@ function buildVodCards(sets) {
     });
     vod.folders = [];
     vod.cards.forEach(function (c) { if (vod.folders.indexOf(c.group) === -1) vod.folders.push(c.group); });
+    vod.folders = vod.folders.filter(function (f) { return !isAdultText(f); })
+        .concat(vod.folders.filter(function (f) { return isAdultText(f); }));
     vod.cats = [{ id: '__all', label: 'Todos' }, { id: '__fav', label: 'Favoritos' }]
         .concat(vod.folders.map(function (f) { return { id: f, label: f }; }));
 }
@@ -2789,7 +2802,7 @@ function refreshTvFavList() {
     const list = [];
     getTvFavs().forEach(u => {
         const ch = state.channels.find(c => c.url === u);
-        if (ch) list.push(ch);
+        if (ch && !isAdultLocked(ch.folder)) list.push(ch);
     });
     state.channelsByFolder[FAV_FOLDER] = list;
 }
