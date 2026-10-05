@@ -1323,3 +1323,49 @@ body {
     outline: none;
 }
 .lk-pastein.show { display: block; }
+
+
+/* ================================================================
+   Pergunta "Deseja sair do aplicativo?"
+   ================================================================ */
+#exit-modal {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.88);
+}
+.exit-box {
+    width: 860px;
+    max-width: 94%;
+    padding: 56px 40px 50px;
+    border-radius: 30px;
+    text-align: center;
+    background: rgba(22, 22, 30, 0.97);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+}
+.exit-title { font-size: 3rem; font-weight: 800; color: #fff; margin-bottom: 46px; line-height: 1.2; }
+.exit-btns { display: flex; justify-content: center; gap: 40px; }
+.exit-btn {
+    width: 280px;
+    padding: 30px 0;
+    border-radius: 20px;
+    font-size: 2.4rem;
+    font-weight: 800;
+    color: #fff;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.12);
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.12s ease;
+}
+.exit-btn.efocus {
+    border-color: #fff;
+    background: var(--focus-gradient);
+    color: #000;
+    transform: scale(1.08);
+    box-shadow: 0 0 34px rgba(0, 229, 255, 0.85);
+}
