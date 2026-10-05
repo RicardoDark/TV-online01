@@ -1106,36 +1106,56 @@ function showToast(name, folder) {
    app usa esse toque para voltar de tela (filme -> lista -> início).
    Na tela inicial/login, o 1º Voltar só avisa; o 2º Voltar sai do app.
    ==================================================================== */
-const backTrap = { on: false, lastKey: 0, exitAt: 0, exiting: false };
+const backTrap = { depth: 0, max: 6, lastKey: 0, exitAt: 0, exiting: false };
 
-function backTrapPush() {
-    try { history.pushState({ iptvTrap: 1 }, '', location.href); backTrap.on = true; } catch (e) {}
+function isBackKey(e) {
+    return e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack';
+}
+
+// Mantém VÁRIAS páginas falsas na pilha. O Chrome/WebView ignora páginas criadas
+// sem toque/tecla do usuário (as "puladas"); com a pilha cheia, o Voltar do aparelho
+// nunca chega ao fim e o diálogo nativo "Deseja sair agora?" não aparece.
+function backTrapFill() {
+    if (backTrap.exiting) return;
+    try {
+        while (backTrap.depth < backTrap.max) {
+            history.pushState({ iptvTrap: 1 }, '', location.href);
+            backTrap.depth++;
+        }
+    } catch (e) {}
 }
 
 function setupBackTrap() {
     if (!window.history || !history.pushState) return;
-    backTrapPush();
+    backTrapFill();
     window.addEventListener('popstate', function () {
-        backTrap.on = false;
-        // se a tecla Voltar já foi tratada agora há pouco, não trata de novo
-        if (Date.now() - backTrap.lastKey < 500) { backTrapPush(); return; }
+        if (backTrap.depth > 0) backTrap.depth--;
         if (backTrap.exiting) return;   // já confirmou sair: deixa o aparelho fechar
-        handleBackAction();
-        backTrapPush(); backTrap.exitAt = 0;
+        // se a tecla Voltar já foi tratada agora há pouco, não trata de novo
+        if (Date.now() - backTrap.lastKey >= 500) {
+            handleBackAction();
+            backTrap.exitAt = 0;
+        }
+        backTrapFill();
     });
     // marca quando o Voltar chegou como tecla (controle) para não tratar em dobro
     document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack') backTrap.lastKey = Date.now();
+        if (isBackKey(e)) backTrap.lastKey = Date.now();
     }, true);
-    // se a armadilha foi gasta (ex.: saiu e voltou), refaz no próximo toque/tecla
-    // (qualquer toque/tecla que não seja Voltar cancela o aviso de sair)
-    ['keydown', 'click', 'touchstart'].forEach(function (ev) {
+    // qualquer toque/tecla (que não seja Voltar) reabastece a pilha com "gesto do usuário",
+    // que é o que faz o aparelho respeitar as páginas falsas
+    ['keydown', 'click', 'touchstart', 'mousedown'].forEach(function (ev) {
         document.addEventListener(ev, function (e) {
-            if (e.type === 'keydown' && (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack')) return;
+            if (e.type === 'keydown' && isBackKey(e)) return;
             backTrap.exitAt = 0;
-            if (!backTrap.on && !backTrap.exiting) backTrapPush();
+            backTrapFill();
         }, true);
     });
+    // voltando de outro app / tela apagada: refaz a pilha
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) backTrapFill();
+    });
+    window.addEventListener('pageshow', function () { backTrap.depth = 0; backTrapFill(); });
 }
 
 
