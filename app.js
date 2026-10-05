@@ -1106,58 +1106,46 @@ function showToast(name, folder) {
    app usa esse toque para voltar de tela (filme -> lista -> início).
    Na tela inicial/login, o 1º Voltar só avisa; o 2º Voltar sai do app.
    ==================================================================== */
-const backTrap = { depth: 0, max: 6, lastKey: 0, exitAt: 0, exiting: false };
+const backTrap = { lastPush: 0, lastKey: 0, exitAt: 0, exiting: false };
 
 function isBackKey(e) {
     return e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack';
 }
 
-// Mantém VÁRIAS páginas falsas na pilha. O Chrome/WebView IGNORA ao voltar as páginas
-// criadas antes de qualquer toque/tecla do usuário. Por isso só contamos (e criamos)
-// páginas depois de uma interação real; assim o Voltar nunca chega ao fim da pilha
-// e o diálogo nativo "Deseja sair agora?" não aparece.
-function backTrapFill(fromGesture) {
+// O Chrome/WebView IGNORA ao voltar as páginas criadas sem toque/tecla do usuário e,
+// quando acaba o histórico, o Android mostra "Deseja sair agora?".
+// Solução: a cada toque/tecla REAL do usuário criamos uma página falsa nova (válida).
+// O histórico do navegador guarda até ~50, então sempre sobram páginas para o Voltar.
+function backTrapPush() {
     if (backTrap.exiting) return;
-    const ua = navigator.userActivation;
-    const activated = fromGesture || (ua && ua.hasBeenActive);
-    if (!activated) return;
-    try {
-        while (backTrap.depth < backTrap.max) {
-            history.pushState({ iptvTrap: 1 }, '', location.href);
-            backTrap.depth++;
-        }
-    } catch (e) {}
+    const now = Date.now();
+    if (now - backTrap.lastPush < 120) return;   // evita encher à toa ao segurar uma tecla
+    backTrap.lastPush = now;
+    try { history.pushState({ iptvTrap: 1 }, '', location.href); } catch (e) {}
 }
 
 function setupBackTrap() {
     if (!window.history || !history.pushState) return;
-    backTrapFill(false);   // só cria se o usuário já interagiu (ex.: voltando de outra tela)
     window.addEventListener('popstate', function () {
-        if (backTrap.depth > 0) backTrap.depth--;
         if (backTrap.exiting) return;   // já confirmou sair: deixa o aparelho fechar
         // se a tecla Voltar já foi tratada agora há pouco, não trata de novo
         if (Date.now() - backTrap.lastKey >= 500) {
             handleBackAction();
             backTrap.exitAt = 0;
         }
-        backTrapFill(false);
     });
     // marca quando o Voltar chegou como tecla (controle) para não tratar em dobro
     document.addEventListener('keydown', function (e) {
         if (isBackKey(e)) backTrap.lastKey = Date.now();
     }, true);
-    // qualquer toque/tecla (que não seja Voltar) cria as páginas falsas COM gesto do usuário
-    ['keydown', 'keyup', 'click', 'touchstart', 'touchend', 'pointerdown', 'pointerup', 'mousedown'].forEach(function (ev) {
+    // cada toque/tecla (que não seja Voltar) cria uma página falsa COM gesto do usuário
+    ['keydown', 'click', 'mousedown', 'pointerdown', 'touchend'].forEach(function (ev) {
         document.addEventListener(ev, function (e) {
-            if ((e.type === 'keydown' || e.type === 'keyup') && isBackKey(e)) return;
+            if (e.type === 'keydown' && isBackKey(e)) return;
             backTrap.exitAt = 0;
-            backTrapFill(true);
+            backTrapPush();
         }, true);
     });
-    document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) backTrapFill(false);
-    });
-    window.addEventListener('pageshow', function () { backTrap.depth = 0; backTrapFill(false); });
 }
 
 
