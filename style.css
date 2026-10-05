@@ -650,12 +650,12 @@ body, html {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
     overflow-y: auto;
-    padding: 34px 40px 70px 40px;
+    padding: 20px 36px 70px 36px;
 }
 .vod-toprow { display: flex; align-items: flex-start; }
 .vod-win {
-    width: 806px;
-    height: 453px;
+    width: 576px;
+    height: 324px;
     flex-shrink: 0;
     border-radius: 18px;
     background: #000;
@@ -672,45 +672,45 @@ body, html {
 }
 #video-player.vod-window.winfocus { border-color: #fff; }
 
-.vod-info { flex: 1; min-width: 0; margin-left: 58px; }
-.vod-info h1 { font-size: 3rem; font-weight: 800; line-height: 1.1; margin-bottom: 14px; }
-.vod-info p { font-size: 1.5rem; margin-bottom: 8px; }
+.vod-info { flex: 1; min-width: 0; margin-left: 32px; }
+.vod-info h1 { font-size: 2rem; font-weight: 800; line-height: 1.1; margin-bottom: 8px; }
+.vod-info p { font-size: 1.05rem; margin-bottom: 4px; }
 .vod-info p span { color: var(--text-secondary); margin-right: 8px; }
-.vod-actions { margin-top: 22px; }
+.vod-actions { margin-top: 12px; }
 .vod-act {
     display: inline-flex;
     align-items: center;
-    padding: 16px 28px;
-    margin-right: 16px;
+    padding: 9px 18px;
+    margin-right: 12px;
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.14);
     border: 3px solid transparent;
-    font-size: 1.35rem;
+    font-size: 1.05rem;
     font-weight: 600;
 }
-.vod-act svg { width: 32px; height: 32px; margin-right: 12px; stroke: #fff; fill: none; stroke-width: 2; }
+.vod-act svg { width: 22px; height: 22px; margin-right: 8px; stroke: #fff; fill: none; stroke-width: 2; }
 .vod-act.isfav svg { fill: #ff4d6d; stroke: #ff4d6d; }
 .vod-act.vfocus { border-color: #fff; background: rgba(255, 255, 255, 0.28); box-shadow: 0 0 22px rgba(0, 229, 255, 0.7); }
 
-.vod-h { font-size: 1.7rem; font-weight: 700; color: var(--text-secondary); margin: 28px 0 12px 0; }
-.vod-syn { font-size: 1.4rem; line-height: 1.45; max-width: 1500px; }
+.vod-h { font-size: 1.3rem; font-weight: 700; color: var(--text-secondary); margin: 14px 0 6px 0; }
+.vod-syn { font-size: 1.1rem; line-height: 1.45; max-width: 1500px; }
 
 .vod-row { white-space: nowrap; overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
 .vod-chip {
     display: inline-block;
-    padding: 12px 22px;
-    margin: 0 12px 8px 0;
+    padding: 8px 16px;
+    margin: 0 10px 4px 0;
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.12);
     border: 3px solid transparent;
-    font-size: 1.25rem;
+    font-size: 1.05rem;
     font-weight: 600;
 }
 .vod-chip.sel { background: rgba(0, 229, 255, 0.25); border-color: rgba(0, 229, 255, 0.7); }
 .vod-chip.vfocus { background: var(--focus-gradient); color: #000; border-color: #fff; }
 
 .vod-rel { white-space: nowrap; overflow-x: auto; overflow-y: hidden; padding: 14px 8px 10px 8px; }
-.vod-rel .vod-card { display: inline-block; width: 269px; margin-right: 18px; vertical-align: top; }
+.vod-rel .vod-card { display: inline-block; width: 160px; margin-right: 18px; vertical-align: top; }
 
 /* ---------- Carregando dentro da janela ---------- */
 .vod-spin {

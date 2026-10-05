@@ -1962,7 +1962,7 @@ function loadMoviesApi() {
             return {
                 key: 'M:' + s.stream_id,
                 title: String(s.name || 'Sem nome').trim(),
-                logo: s.stream_icon || '',
+                logo: s.stream_icon || s.cover || s.movie_image || '',
                 kind: 'movie',
                 group: cm[String(s.category_id)] || 'Outros',
                 url: streamUrl('movie', s.stream_id, s.container_extension),
@@ -1982,7 +1982,7 @@ function loadSeriesApi() {
             return {
                 key: 'S:' + s.series_id,
                 title: String(s.name || 'Sem nome').trim(),
-                logo: s.cover || '',
+                logo: s.cover || (Array.isArray(s.backdrop_path) ? s.backdrop_path[0] : '') || s.stream_icon || '',
                 kind: 'series',
                 group: cm[String(s.category_id)] || 'Outros',
                 eps: [], lazy: true, loaded: false,
@@ -2038,7 +2038,7 @@ function loadSeriesEpisodes(card) {
         eps.sort(function (a, b) { return (a.season - b.season) || (a.ep - b.ep); });
         const info = (d && d.info) || {};
         if (info.plot) card.plot = info.plot;
-        if (!card.logo && info.cover) card.logo = info.cover;
+        if (!card.logo && (info.cover || info.movie_image)) card.logo = info.cover || info.movie_image;
         if (info.rating) card.rating = info.rating;
         if (info.releaseDate || info.release_date) card.releaseDate = info.releaseDate || info.release_date;
         card.eps = eps;
@@ -2399,6 +2399,27 @@ function esc(s) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
 }
+
+/* ---------- capas: tenta https, link original e proxy de imagens ---------- */
+function imgCandidates(u) {
+    u = String(u || '').trim();
+    if (!u) return [];
+    if (u.indexOf('//') === 0) u = 'https:' + u;
+    const out = [];
+    const isHttp = /^http:\/\//i.test(u);
+    if (isHttp && location.protocol === 'https:') { out.push(u.replace(/^http:/i, 'https:')); out.push(u); }
+    else out.push(u);
+    out.push('https://images.weserv.nl/?url=' + encodeURIComponent(u.replace(/^https?:\/\//i, '')));
+    return out;
+}
+function imgFirst(u) { const l = imgCandidates(u); return l.length ? l[0] : ''; }
+function imgFail(img) {
+    const l = imgCandidates(img.getAttribute('data-u'));
+    const n = (parseInt(img.getAttribute('data-n'), 10) || 0) + 1;
+    if (n < l.length) { img.setAttribute('data-n', n); img.src = l[n]; }
+    else if (img.parentNode) img.parentNode.removeChild(img);
+}
+window.imgFail = imgFail;
 function norm(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
 function fmtTime(sec) {
     if (!isFinite(sec) || sec < 0) sec = 0;
@@ -2617,7 +2638,7 @@ function cardHtml(c, i, z) {
     return '<div class="vod-card" data-z="' + z + '" data-i="' + i + '">' +
         '<div class="vod-poster">' +
           '<span class="vod-ph">' + esc(c.title) + '</span>' +
-          (c.logo ? '<img src="' + esc(c.logo) + '" onerror="this.parentNode.removeChild(this)">' : '') +
+          (c.logo ? '<img src="' + esc(imgFirst(c.logo)) + '" data-u="' + esc(c.logo) + '" referrerpolicy="no-referrer" onerror="imgFail(this)">' : '') +
         '</div>' +
         '<div class="vod-card-title">' + esc(c.title) + '</div>' +
       '</div>';
@@ -2993,7 +3014,7 @@ function renderDetail() {
     info += '<p id="vod-nota" style="display:none"></p><p id="vod-data" style="display:none"></p>';
 
     $v('vod-root').innerHTML =
-        '<div class="vod-detail-bg" style="background-image:url(\'' + esc(c.logo) + '\')"></div>' +
+        '<div class="vod-detail-bg" style="background-image:url(\'' + esc(imgFirst(c.logo)) + '\')"></div>' +
         '<div class="vod-detail" id="vod-detail">' +
           '<div class="vod-toprow">' +
             '<div class="vod-win" data-z="video" data-i="0"></div>' +
