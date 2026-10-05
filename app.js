@@ -1877,58 +1877,109 @@ function enterFree() {
     showSplashAfterLogin();
 }
 
+// Aceita link colado inteiro (ex.: http://site.com:8080/get.php?username=X&password=Y...)
+// e extrai o usuário e a senha que vierem dentro dele.
+function parseCustomLink(txt) {
+    const out = { link: String(txt || '').trim(), user: '', pass: '' };
+    const mu = /[?&]username=([^&\s]+)/i.exec(out.link);
+    const mp = /[?&]password=([^&\s]+)/i.exec(out.link);
+    try { if (mu) out.user = decodeURIComponent(mu[1]); if (mp) out.pass = decodeURIComponent(mp[1]); } catch (e) {}
+    return out;
+}
+
+// Endereços que o app tenta, na ordem, para o mesmo link digitado.
+// Página https não consegue abrir link http direto, então também tenta a versão https.
+function loginBases(link) {
+    let b = normalizeServer(link);
+    b = b.replace(/\/c$/i, '');            // alguns painéis usam .../c
+    const list = [];
+    const add = function (x) { if (x && list.indexOf(x) === -1) list.push(x); };
+    if (/^http:\/\//i.test(b) && location.protocol === 'https:') {
+        add(b.replace(/^http:/i, 'https:'));
+        add(b);
+    } else {
+        add(b);
+        if (/^https:\/\//i.test(b)) add(b.replace(/^https:/i, 'http:'));
+        else add(b.replace(/^http:/i, 'https:'));
+    }
+    return list;
+}
+
 async function doLogin() {
     if (login.busy) return;
-    const user = document.getElementById('login-user').value.trim();
-    const pass = document.getElementById('login-pass').value.trim();
+    let user = document.getElementById('login-user').value.trim();
+    let pass = document.getElementById('login-pass').value.trim();
     // Se digitou um link manual, ele vale no lugar do Servidor 1/2/3
     const custom = document.getElementById('login-custom').value.trim();
-    const link = custom || (SERVERS.length ? SERVERS[login.server].url : '');
+    let link = custom || (SERVERS.length ? SERVERS[login.server].url : '');
+
+    // Link colado com usuário e senha dentro: usa os dados do próprio link
+    if (custom) {
+        const pc = parseCustomLink(custom);
+        if (pc.user && pc.pass) {
+            user = pc.user; pass = pc.pass;
+            document.getElementById('login-user').value = user;
+            document.getElementById('login-pass').value = pass;
+        }
+    }
 
     if (!user || !pass) { loginError('Preencha usuário e senha.'); return; }
     if (!link) { loginError('Nenhum servidor configurado.'); return; }
-    const base = normalizeServer(link);
 
     loginError('');
     loginBusy(true);
 
-    const tryApi = { base: base, user: user, pass: pass };
-    const m3uUrl = m3uUrlFor(base, user, pass);
+    const bases = loginBases(link);
+    let authFail = false;
+    let ok = null;
 
     try {
-        // 1) Valida pelo login do servidor (traz também a data de vencimento)
-        let info = null;
-        try {
-            const old = state.api;
-            state.api = tryApi;
-            const r = await fetchTimeout(apiUrl(), 15000);
-            state.api = old;
-            if (r.ok) {
-                const d = await r.json();
-                if (d && d.user_info) info = d.user_info;
-            }
-        } catch (e) { info = null; state.api = null; }
+        for (let i = 0; i < bases.length && !ok; i++) {
+            const base = bases[i];
+            const tryApi = { base: base, user: user, pass: pass };
+            const m3uUrl = m3uUrlFor(base, user, pass);
+            let info = null;
 
-        if (info && String(info.auth) === '0') {
+            // 1) Valida pelo login do servidor (traz também a data de vencimento)
+            try {
+                const old = state.api;
+                state.api = tryApi;
+                const r = await fetchTimeout(apiUrl(), 15000);
+                state.api = old;
+                if (r.ok) {
+                    const d = await r.json();
+                    if (d && d.user_info) info = d.user_info;
+                }
+            } catch (e) { info = null; state.api = null; }
+
+            if (info && String(info.auth) === '0') { authFail = true; continue; }
+            if (info) { ok = { base: base, info: info, m3uUrl: m3uUrl }; break; }
+
+            // 2) Se o servidor não respondeu ao login, valida baixando a lista
+            try {
+                const r = await fetchTimeout(m3uUrl, 60000);
+                if (!r.ok) throw new Error('http ' + r.status);
+                const txt = await r.text();
+                if (txt.indexOf('#EXTM3U') === -1) throw new Error('lista inválida');
+                state.m3uCache[m3uUrl] = txt;
+                ok = { base: base, info: null, m3uUrl: m3uUrl };
+            } catch (e) { console.error(e); }
+        }
+
+        if (!ok) {
             state.api = null;
-            loginError('Usuário ou senha inválidos.');
+            if (authFail) loginError('Usuário ou senha inválidos para este link.');
+            else if (custom) loginError('Não consegui conectar a esse link. Confira o endereço (e a porta, se tiver) e tente também com https://');
+            else loginError('Não foi possível entrar. Confira o link, o usuário e a senha.');
             return;
         }
 
-        // 2) Se o servidor não respondeu ao login, valida baixando a lista
-        if (!info) {
-            const r = await fetchTimeout(m3uUrl, 60000);
-            if (!r.ok) throw new Error('http ' + r.status);
-            const txt = await r.text();
-            if (txt.indexOf('#EXTM3U') === -1) throw new Error('lista inválida');
-            state.m3uCache[m3uUrl] = txt;
-        }
-
+        const info = ok.info;
         try { localStorage.setItem(LOGIN_KEY, JSON.stringify({ user: user, pass: pass, link: link, custom: custom })); } catch (e) {}
-        state.m3uUrl = m3uUrl;
-        state.api = info ? tryApi : null;
+        state.m3uUrl = ok.m3uUrl;
+        state.api = info ? { base: ok.base, user: user, pass: pass } : null;
         saveSession({
-            mode: 'xtream', user: user, pass: pass, link: link,
+            mode: 'xtream', user: user, pass: pass, link: ok.base,
             api: !!info, exp: info ? (info.exp_date === undefined ? null : info.exp_date) : null
         });
         renderExpiry(info);
