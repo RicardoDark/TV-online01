@@ -3720,9 +3720,7 @@ function playerKeys(e) {
             e.preventDefault(); vodSeek(1); break;
         case 'Enter': case ' ': case 'MediaPlayPause':
             e.preventDefault(); togglePlay(); break;
-        case 'ArrowDown':
-            e.preventDefault(); openSettings(); break;
-        case 'ArrowUp':
+        case 'ArrowDown': case 'ArrowUp':
             e.preventDefault(); showPlayerUI(); break;
         case 'Escape': case 'Backspace': case 'BrowserBack':
             e.preventDefault(); exitFullscreen(); break;
@@ -3962,7 +3960,7 @@ function vodPlayerClick(e) {
     if (a === 'rew') { vod.seekRepeat = 0; vodSeek(-1); }
     else if (a === 'ff') { vod.seekRepeat = 0; vodSeek(1); }
     else if (a === 'play') { togglePlay(); }
-    else if (a === 'set') { if (vod.settingsOpen) closeSettings(); else openSettings(); }
+
     else if (a === 'close') { exitFullscreen(); }
     else if (a === 'speed') {
         vod.speedIdx = (vod.speedIdx + 1) % SPEEDS.length;
