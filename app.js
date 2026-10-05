@@ -1147,7 +1147,7 @@ function setupBackTrap() {
         if (isBackKey(e)) backTrap.lastKey = Date.now();
     }, true);
     // qualquer toque/tecla (que não seja Voltar) cria as páginas falsas COM gesto do usuário
-    ['keydown', 'keyup', 'click', 'touchstart', 'pointerdown', 'mousedown'].forEach(function (ev) {
+    ['keydown', 'keyup', 'click', 'touchstart', 'touchend', 'pointerdown', 'pointerup', 'mousedown'].forEach(function (ev) {
         document.addEventListener(ev, function (e) {
             if ((e.type === 'keydown' || e.type === 'keyup') && isBackKey(e)) return;
             backTrap.exitAt = 0;
@@ -3061,10 +3061,7 @@ function vodBack() {
         if (s) restoreView(s); else vodShowHome('cats', 0);
         return true;
     }
-    if (vod.zone !== 'cats') {
-        vod.zone = 'cats'; vod.idx = vod.catIndex; applyFocus();
-        return true;
-    }
+    // Lista de filmes/séries (ou categorias): Voltar vai direto para a tela inicial
     window.location.reload();
     return true;
 }
