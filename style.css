@@ -654,8 +654,8 @@ body, html {
 }
 .vod-toprow { display: flex; align-items: flex-start; }
 .vod-win {
-    width: 576px;
-    height: 324px;
+    width: 540px;
+    height: 304px;
     flex-shrink: 0;
     border-radius: 18px;
     background: #000;
@@ -673,27 +673,29 @@ body, html {
 #video-player.vod-window.winfocus { border-color: #fff; }
 
 .vod-info { flex: 1; min-width: 0; margin-left: 32px; }
-.vod-info h1 { font-size: 2rem; font-weight: 800; line-height: 1.1; margin-bottom: 8px; }
+.vod-info h1 { font-size: 2.2rem; font-weight: 800; line-height: 1.1; margin-bottom: 10px; text-transform: uppercase; }
 .vod-info p { font-size: 1.05rem; margin-bottom: 4px; }
-.vod-info p span { color: var(--text-secondary); margin-right: 8px; }
+.vod-info p span { color: var(--text-secondary); margin-right: 6px; }
+.vod-info p b { font-weight: 600; color: #fff; }
+.vod-info p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 6px; }
 .vod-actions { margin-top: 12px; }
 .vod-act {
     display: inline-flex;
     align-items: center;
-    padding: 9px 18px;
-    margin-right: 12px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.14);
+    padding: 8px 16px;
+    margin-right: 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.26);
     border: 3px solid transparent;
     font-size: 1.05rem;
     font-weight: 600;
 }
-.vod-act svg { width: 22px; height: 22px; margin-right: 8px; stroke: #fff; fill: none; stroke-width: 2; }
+.vod-act svg { width: 30px; height: 30px; margin-right: 10px; stroke: #fff; fill: none; stroke-width: 2; }
 .vod-act.isfav svg { fill: #ff4d6d; stroke: #ff4d6d; }
 .vod-act.vfocus { border-color: #fff; background: rgba(255, 255, 255, 0.28); box-shadow: 0 0 22px rgba(0, 229, 255, 0.7); }
 
-.vod-h { font-size: 1.3rem; font-weight: 700; color: var(--text-secondary); margin: 14px 0 6px 0; }
-.vod-syn { font-size: 1.1rem; line-height: 1.45; max-width: 1500px; }
+.vod-h { font-size: 1.5rem; font-weight: 700; color: var(--text-secondary); margin: 18px 0 8px 0; }
+.vod-syn { font-size: 1.15rem; line-height: 1.4; max-width: 1500px; font-weight: 600; color: #fff; }
 
 .vod-row { white-space: nowrap; overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
 .vod-chip {
@@ -706,7 +708,29 @@ body, html {
     font-size: 1.05rem;
     font-weight: 600;
 }
-.vod-chip.sel { background: rgba(0, 229, 255, 0.25); border-color: rgba(0, 229, 255, 0.7); }
+.vod-chip.sel { background: rgba(255, 255, 255, 0.34); }
+.vod-row-seasons { margin-top: 22px; }
+.vod-row-eps { margin-top: 6px; }
+.vod-chip.vod-chip-season, .vod-chip.vod-chip-ep {
+    position: relative;
+    text-align: center;
+    height: 54px; line-height: 48px;
+    padding: 0; border-radius: 8px;
+    margin: 0 16px 8px 0;
+    background: rgba(255, 255, 255, 0.2);
+    font-size: 1.4rem; font-weight: 800; color: #fff;
+}
+.vod-chip.vod-chip-season { width: 214px; }
+.vod-chip.vod-chip-ep { width: 156px; }
+.vod-chip.vod-chip-season.sel, .vod-chip.vod-chip-ep.sel { background: rgba(255, 255, 255, 0.34); }
+.vod-chip.vod-chip-season.vfocus, .vod-chip.vod-chip-ep.vfocus { background: var(--focus-gradient); color: #000; }
+.vod-eq { position: absolute; left: 14px; top: 17px; width: 20px; height: 20px; display: flex; align-items: flex-end; justify-content: space-between; }
+.vod-eq b { display: block; width: 5px; background: #00e5ff; border-radius: 1px; animation: vodEq 0.9s ease-in-out infinite; }
+.vod-eq b:nth-child(1) { height: 60%; animation-delay: 0s; }
+.vod-eq b:nth-child(2) { height: 100%; animation-delay: 0.25s; }
+.vod-eq b:nth-child(3) { height: 40%; animation-delay: 0.5s; }
+@keyframes vodEq { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+.vod-eq b { transform-origin: bottom; }
 .vod-chip.vfocus { background: var(--focus-gradient); color: #000; border-color: #fff; }
 
 .vod-rel { white-space: nowrap; overflow-x: auto; overflow-y: hidden; padding: 14px 8px 10px 8px; }

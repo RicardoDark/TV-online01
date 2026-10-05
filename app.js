@@ -2119,7 +2119,10 @@ function loadSeriesApi() {
                 seriesId: s.series_id,
                 plot: s.plot || '',
                 rating: s.rating || '',
-                releaseDate: s.releaseDate || s.release_date || ''
+                releaseDate: s.releaseDate || s.release_date || '',
+                director: s.director || '',
+                cast: s.cast || '',
+                genre: s.genre || ''
             };
         });
     });
@@ -2171,6 +2174,9 @@ function loadSeriesEpisodes(card) {
         if (!card.logo && (info.cover || info.movie_image)) card.logo = info.cover || info.movie_image;
         if (info.rating) card.rating = info.rating;
         if (info.releaseDate || info.release_date) card.releaseDate = info.releaseDate || info.release_date;
+        if (info.director) card.director = info.director;
+        if (info.cast) card.cast = info.cast;
+        if (info.genre) card.genre = info.genre;
         card.eps = eps;
         card.loaded = eps.length > 0;
         return eps.length > 0;
@@ -3128,17 +3134,35 @@ function favButtonHtml() {
     return ICON_HEART + (isFav(vod.card) ? 'Favoritado' : 'Favorito');
 }
 
+function pad2(n) { n = parseInt(n, 10) || 0; return (n < 10 ? '0' : '') + n; }
+
+function metaRowHtml(id, label, val) {
+    return '<p id="' + id + '" class="vod-row-meta"' + (val ? '' : ' style="display:none"') + '><span>' + label + ':</span><b>' + esc(val || '') + '</b></p>';
+}
+function setMetaRow(id, val) {
+    const p = $v(id);
+    if (!p) return;
+    const b = p.querySelector('b');
+    if (val) { if (b) b.textContent = String(val); p.style.display = ''; }
+    else p.style.display = 'none';
+}
+function fmtNota(n) {
+    const x = Number(n);
+    if (!isFinite(x) || x <= 0) return '';
+    return String(Math.round(x * 10) / 10);
+}
+
 function renderDetail() {
     const c = vod.card;
     const isSeries = c.kind === 'series';
-    let info = '<p><span>Categoria:</span>' + esc(c.group) + '</p>' +
-               '<p><span>Tipo:</span>' + (isSeries ? 'Série' : 'Filme') + '</p>';
-    if (isSeries) {
-        info += '<p><span>Temporadas:</span>' + seasonsList().length + '</p>' +
-                '<p><span>Episódios:</span>' + c.eps.length + '</p>' +
-                '<p><span>Assistindo:</span><b id="vod-now"></b></p>';
-    }
-    info += '<p id="vod-nota" style="display:none"></p><p id="vod-data" style="display:none"></p>';
+    const nSeasons = isSeries ? seasonsList().length : 0;
+    const info =
+        metaRowHtml('vod-m-dir', 'Diretor', c.director) +
+        metaRowHtml('vod-m-cast', 'Estrelando', c.cast) +
+        metaRowHtml('vod-m-tipo', 'Tipo', c.genre || c.group) +
+        metaRowHtml('vod-m-nota', 'Avaliação', fmtNota(parseRating(c.rating))) +
+        metaRowHtml('vod-m-data', 'Tempo de lançamento', c.releaseDate) +
+        metaRowHtml('vod-m-dur', 'Longitude do filme', isSeries ? (nSeasons + (nSeasons === 1 ? ' Temporada' : ' Temporadas')) : (c.duration || ''));
 
     $v('vod-root').innerHTML =
         '<div class="vod-detail-bg" style="background-image:url(\'' + esc(imgFirst(c.logo)) + '\')"></div>' +
@@ -3154,11 +3178,11 @@ function renderDetail() {
             '</div>' +
           '</div>' +
           (isSeries ?
-            '<div class="vod-h">Temporadas</div><div class="vod-row" id="vod-seasons"></div>' +
-            '<div class="vod-h">Episódios</div><div class="vod-row" id="vod-eps"></div>' : '') +
-          '<div class="vod-h">Sinopse</div>' +
+            '<div class="vod-row vod-row-seasons" id="vod-seasons"></div>' +
+            '<div class="vod-row vod-row-eps" id="vod-eps"></div>' : '') +
+          '<div class="vod-h">Introduzir</div>' +
           '<div class="vod-syn" id="vod-syn">Carregando...</div>' +
-          (vod.related.length ? '<div class="vod-h">Relacionados</div><div class="vod-rel" id="vod-rel">' +
+          (vod.related.length ? '<div class="vod-h">Recomendações relacionadas</div><div class="vod-rel" id="vod-rel">' +
             vod.related.map(function (r, i) { return cardHtml(r, i, 'rel'); }).join('') + '</div>' : '') +
         '</div>';
 
@@ -3169,12 +3193,14 @@ function renderDetail() {
 
 function renderSeasons() {
     $v('vod-seasons').innerHTML = seasonsList().map(function (s, i) {
-        return '<div class="vod-chip' + (s === vod.season ? ' sel' : '') + '" data-z="seasons" data-i="' + i + '">Temporada ' + s + '</div>';
+        return '<div class="vod-chip vod-chip-season' + (s === vod.season ? ' sel' : '') + '" data-z="seasons" data-i="' + i + '">S' + pad2(s) + '</div>';
     }).join('');
 }
 function renderEps() {
     $v('vod-eps').innerHTML = epsOfSeason().map(function (e, i) {
-        return '<div class="vod-chip' + (e.url === vod.epUrl ? ' sel' : '') + '" data-z="eps" data-i="' + i + '">Ep. ' + e.ep + '</div>';
+        const playing = e.url === vod.epUrl;
+        return '<div class="vod-chip vod-chip-ep' + (playing ? ' sel' : '') + '" data-z="eps" data-i="' + i + '">' +
+               (playing ? '<i class="vod-eq"><b></b><b></b><b></b></i>' : '') + 'EP' + pad2(e.ep) + '</div>';
     }).join('');
 }
 function updateNow() {
@@ -3260,14 +3286,19 @@ function playEpisode(ep) {
 function fetchMeta(card) {
     const syn = $v('vod-syn');
     if (card.plot) {
-        fillMeta(card, { overview: card.plot, nota: parseRating(card.rating), data: card.releaseDate });
+        fillMeta(card, { overview: card.plot, nota: parseRating(card.rating), data: card.releaseDate, director: card.director, cast: card.cast, genre: card.genre });
         return;
     }
     if (state.api && card.kind === 'movie' && card.vodId != null) {
         if (vod.metaCache[card.key]) { fillMeta(card, vod.metaCache[card.key]); return; }
         apiJson('get_vod_info', '&vod_id=' + enc(card.vodId), 20000).then(function (d) {
             const i = (d && d.info) || {};
-            const m = { overview: i.plot || i.description || '', nota: parseRating(i.rating), data: i.releasedate || i.release_date || '' };
+            const m = {
+                overview: i.plot || i.description || '', nota: parseRating(i.rating || i.rating_5based * 2),
+                data: i.releasedate || i.release_date || '',
+                director: i.director || '', cast: i.cast || i.actors || '', genre: i.genre || '',
+                duration: i.duration || (i.episode_run_time ? i.episode_run_time + ' min' : '')
+            };
             vod.metaCache[card.key] = m;
             if (vod.card === card) fillMeta(card, m);
         }).catch(function () {
@@ -3294,8 +3325,12 @@ function fetchMeta(card) {
 function fillMeta(card, m) {
     if (!$v('vod-syn')) return;
     $v('vod-syn').textContent = m.overview || 'Sinopse não disponível para este título.';
-    if (m.nota) { const n = $v('vod-nota'); n.innerHTML = '<span>Nota:</span>' + Number(m.nota).toFixed(1); n.style.display = ''; }
-    if (m.data) { const d = $v('vod-data'); d.innerHTML = '<span>Lançamento:</span>' + esc(m.data); d.style.display = ''; }
+    if (m.director) setMetaRow('vod-m-dir', m.director);
+    if (m.cast) setMetaRow('vod-m-cast', m.cast);
+    if (m.genre) setMetaRow('vod-m-tipo', m.genre);
+    if (m.nota) setMetaRow('vod-m-nota', fmtNota(m.nota));
+    if (m.data) setMetaRow('vod-m-data', m.data);
+    if (card.kind !== 'series' && m.duration) setMetaRow('vod-m-dur', m.duration);
 }
 
 /* ---------- vídeo: janela, reprodução e progresso ---------- */
