@@ -54,8 +54,10 @@ const LOGIN_KEY = 'iptv_login_data';     // últimos dados digitados (preenche a
 const SESSION_KEY = 'iptv_session';       // login ativo: enquanto existir, o app abre direto na tela inicial
 const STORAGE_LAST_CHANNEL_KEY = 'iptv_last_played_channel';
 const TV_FAV_KEY = 'iptv_tv_favs';
-const LONG_PRESS_MS = 700;
+const LONG_PRESS_MS = 500;
 let FAV_FOLDER = 'Favoritos';
+const ALL_FOLDER = 'Canais de A a Z';
+const SEARCH_FOLDER = '\uD83D\uDD0E Pesquisar';
 
 // State Management
 let state = {
@@ -68,6 +70,7 @@ let state = {
     selectedFolderIndex: 0,
     playingChannel: null,
     isMenuVisible: false,
+    epgMode: false,
     hls: null,
     isAndroid: false,
     menuTimeout: null,
@@ -296,11 +299,12 @@ function startFromM3U() {
 
             buildTvFavFolder();
             renderFolders();
-            selectFolder(0, false);
+            const favIdx = Math.max(0, state.folders.indexOf(FAV_FOLDER));
+            selectFolder(favIdx, false);
             if (!state.startFavorites) loadLastPlayedChannel();
 
             state.activeColumn = 'folders';
-            state.focusedFolderIndex = 0;
+            state.focusedFolderIndex = favIdx;
             if (state.startFavorites) {
                 state.activeColumn = (state.channelsByFolder[FAV_FOLDER] || []).length ? 'channels' : 'folders';
                 state.focusedChannelIndex = 0;
@@ -648,7 +652,9 @@ function renderChannels(folderName) {
         const item = document.createElement('div');
         item.className = 'list-item';
         item.id = `channel-${index}`;
-        item.textContent = channel.name + ((folderName !== FAV_FOLDER && isTvFav(channel)) ? '  \u2665' : '');
+        const heart = (folderName !== FAV_FOLDER && isTvFav(channel)) ? '<div class="ch-heart">\u2665</div>' : '';
+        item.innerHTML = '<div class="ch-logo">' + (channel.logo ? '<img src="' + esc(channel.logo) + '" referrerpolicy="no-referrer" onerror="this.style.visibility=\'hidden\'">' : '') + '</div>' +
+            '<div class="ch-txt"><div class="ch-name">' + esc(channel.name) + '</div><div class="ch-now"></div></div>' + heart;
         item.dataset.index = index;
         
         if (state.playingChannel && state.playingChannel.url === channel.url) {
@@ -664,12 +670,13 @@ function renderChannels(folderName) {
         hint.textContent = 'Nenhum favorito ainda. Em qualquer canal, segure o OK para adicionar.';
         el.channelsList.appendChild(hint);
     }
+    epgFillNow();
 }
 
 function selectFolder(index, focusChannels = false) {
     state.selectedFolderIndex = index;
     const folderName = state.folders[index];
-    el.currentFolderTitle.textContent = folderName;
+    el.currentFolderTitle.textContent = folderName + ' < ' + ((state.channelsByFolder[folderName] || []).length) + ' >';
     
     const previousSelected = el.foldersList.querySelector('.selected');
     if (previousSelected) previousSelected.classList.remove('selected');
@@ -679,6 +686,7 @@ function selectFolder(index, focusChannels = false) {
     
     renderChannels(folderName);
     
+    if (focusChannels && folderName === SEARCH_FOLDER) { chSearchOpen(); return; }
     if (focusChannels) {
         state.activeColumn = 'channels';
         state.focusedChannelIndex = 0;
@@ -686,7 +694,7 @@ function selectFolder(index, focusChannels = false) {
 }
 
 function updateFocusDOM() {
-    const previousFocused = document.querySelectorAll('.list-item.focused');
+    const previousFocused = document.querySelectorAll('.list-item.focused, .epg-btn.focused');
     previousFocused.forEach(item => item.classList.remove('focused'));
     
     if (!state.isMenuVisible) return;
@@ -694,8 +702,11 @@ function updateFocusDOM() {
     let focusedElement = null;
     if (state.activeColumn === 'folders') {
         focusedElement = document.getElementById(`folder-${state.focusedFolderIndex}`);
+    } else if (state.activeColumn === 'epgbtn') {
+        focusedElement = document.getElementById('epg-btn');
     } else {
         focusedElement = document.getElementById(`channel-${state.focusedChannelIndex}`);
+        epgFillNow();
     }
     
     if (focusedElement) {
@@ -713,7 +724,7 @@ function resetMenuInactivityTimer() {
     if (state.isMenuVisible) {
         state.menuTimeout = setTimeout(() => {
             toggleMenu(false);
-        }, 10000);
+        }, state.epgMode ? 30000 : 10000);
     }
 }
 
@@ -865,10 +876,157 @@ function toggleMenu(forceVisible = null) {
     } else {
         el.overlay.classList.remove('visible');
         el.overlay.classList.add('hidden');
+        if (state.epgMode) closeEpg();
         if (state.menuTimeout) {
             clearTimeout(state.menuTimeout);
             state.menuTimeout = null;
         }
+    }
+}
+
+/* ====================================================================
+   EPG (guia de programação) - só em listas com servidor IPTV (Xtream)
+   - Cada canal mostra "Now: programa" (carrega só os canais da tela)
+   - Ícone EPG à direita da lista: OK abre o guia (pastas somem, fica
+     canais + dias + programação do canal em foco)
+   ==================================================================== */
+const epg = { cache: {}, now: {}, pend: {}, days: [], dayIdx: 0, progIdx: 0, zone: 'chan', chId: null, items: [], timer: null };
+const EPG_WD = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+
+function epgDecode(t) {
+    t = String(t || '');
+    if (t && t.length % 4 === 0 && /^[A-Za-z0-9+\/]+=*$/.test(t)) {
+        try { return decodeURIComponent(escape(atob(t))); } catch (e) { try { return atob(t); } catch (e2) {} }
+    }
+    return t;
+}
+function epgSid(ch) { const m = ch && ch.id && String(ch.id).match(/^live_(\d+)$/); return m ? m[1] : null; }
+function epgChannels() {
+    const f = state.folders[state.selectedFolderIndex];
+    return (f && !isAdultLocked(f)) ? (state.channelsByFolder[f] || []) : [];
+}
+function epgFetch(sid, full) {
+    const key = (full ? 'f' : 's') + sid;
+    if (epg.cache[key]) return Promise.resolve(epg.cache[key]);
+    return apiJson(full ? 'get_simple_data_table' : 'get_short_epg', '&stream_id=' + enc(sid) + (full ? '' : '&limit=2'), 20000).then(function (d) {
+        const items = asArray(d && d.epg_listings).map(function (l) {
+            return { start: parseInt(l.start_timestamp, 10) || 0, end: parseInt(l.stop_timestamp || l.end_timestamp, 10) || 0,
+                     title: epgDecode(l.title), desc: epgDecode(l.description) };
+        }).filter(function (x) { return x.start; }).sort(function (a, b) { return a.start - b.start; });
+        epg.cache[key] = items;
+        return items;
+    });
+}
+function epgFillNow() {
+    if (!state.api || state.epgMode) return;
+    const list = epgChannels();
+    const f = state.activeColumn === 'channels' ? state.focusedChannelIndex : 0;
+    for (let i = Math.max(0, f - 2); i <= Math.min(list.length - 1, f + 7); i++) epgLoadNow(list[i], i);
+}
+function epgLoadNow(ch, i) {
+    const sid = epgSid(ch);
+    if (!sid) return;
+    function show() {
+        const row = document.getElementById('channel-' + i);
+        if (row && epgChannels()[i] === ch) { const n = row.querySelector('.ch-now'); if (n) n.textContent = 'Now: ' + epg.now[sid]; }
+    }
+    if (epg.now[sid] !== undefined) { show(); return; }
+    if (epg.pend[sid]) return;
+    epg.pend[sid] = 1;
+    epgFetch(sid, false).then(function (items) {
+        const t = Date.now() / 1000;
+        const cur = items.filter(function (x) { return x.start <= t && t < x.end; })[0] || items[0];
+        epg.now[sid] = cur ? cur.title : 'No information';
+    }).catch(function () { epg.now[sid] = 'No information'; }).then(function () { delete epg.pend[sid]; show(); });
+}
+
+function openEpg() {
+    const list = epgChannels(), ch = list[state.focusedChannelIndex];
+    if (!state.api || !epgSid(ch)) { vodMsg('O guia (EPG) só funciona com a lista do servidor IPTV.', 3500); return; }
+    state.epgMode = true;
+    state.activeColumn = 'channels';
+    epg.zone = 'chan';
+    el.overlay.classList.add('epg-on');
+    updateFocusDOM();
+    epgLoadFor(ch);
+}
+function closeEpg() {
+    if (!state.epgMode) return;
+    state.epgMode = false;
+    el.overlay.classList.remove('epg-on');
+    state.activeColumn = 'channels';
+    updateFocusDOM();
+    epgFillNow();
+}
+function epgLoadFor(ch) {
+    const sid = epgSid(ch);
+    epg.chId = sid;
+    $v('epg-days').innerHTML = '';
+    $v('epg-progs').innerHTML = '<div class="epg-empty">Carregando...</div>';
+    $v('epg-desc').textContent = 'Desc:';
+    epgFetch(sid, true).then(function (items) {
+        if (epg.chId !== sid || !state.epgMode) return;
+        epg.items = items;
+        const keys = [], map = {};
+        items.forEach(function (x) {
+            const d = new Date(x.start * 1000), k = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+            if (!map[k]) { map[k] = { k: k, date: d, items: [] }; keys.push(k); }
+            map[k].items.push(x);
+        });
+        epg.days = keys.sort().map(function (k) { return map[k]; });
+        const n = new Date(), nk = n.getFullYear() * 10000 + (n.getMonth() + 1) * 100 + n.getDate();
+        epg.dayIdx = Math.max(0, epg.days.map(function (d) { return d.k; }).indexOf(nk));
+        epgRender();
+    }).catch(function () {
+        if (epg.chId === sid) $v('epg-progs').innerHTML = '<div class="epg-empty">Sem informações de programação para este canal.</div>';
+    });
+}
+function p2(n) { return (n < 10 ? '0' : '') + n; }
+function epgRender() {
+    $v('epg-days').innerHTML = epg.days.map(function (d, i) {
+        return '<div class="epg-day' + (i === epg.dayIdx ? ' sel' : '') + (epg.zone === 'days' && i === epg.dayIdx ? ' focus' : '') + '" data-i="' + i + '">' +
+               EPG_WD[d.date.getDay()] + '<br><span>' + p2(d.date.getMonth() + 1) + '.' + p2(d.date.getDate()) + '</span></div>';
+    }).join('');
+    const day = epg.days[epg.dayIdx];
+    if (!day) { $v('epg-progs').innerHTML = '<div class="epg-empty">Sem informações de programação para este canal.</div>'; return; }
+    const t = Date.now() / 1000;
+    let live = -1;
+    day.items.forEach(function (x, i) { if (x.start <= t && t < x.end) live = i; });
+    if (epg.progIdx >= day.items.length || epg.progIdx < 0) epg.progIdx = 0;
+    $v('epg-progs').innerHTML = day.items.map(function (x, i) {
+        const d = new Date(x.start * 1000), past = x.end <= t;
+        return '<div class="epg-prog' + (past ? ' past' : '') + (epg.zone === 'progs' && i === epg.progIdx ? ' focus' : '') + '" data-i="' + i + '">' +
+               p2(d.getHours()) + ':' + p2(d.getMinutes()) + ' ' + esc(x.title) + (i === live ? ' <em>&bull; Live</em>' : '') + '</div>';
+    }).join('');
+    const shown = day.items[epg.zone === 'progs' ? epg.progIdx : (live >= 0 ? live : 0)];
+    $v('epg-desc').textContent = 'Desc: ' + ((shown && shown.desc) || '');
+    const target = $v('epg-progs').querySelector(epg.zone === 'progs' ? '.focus' : (live >= 0 ? '.epg-prog:nth-child(' + (live + 1) + ')' : '.epg-prog'));
+    if (target && target.scrollIntoView) target.scrollIntoView({ block: 'center' });
+}
+function epgKeys(e) {
+    const k = e.key;
+    if (k === 'Escape' || k === 'Backspace') { e.preventDefault(); closeEpg(); return; }
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].indexOf(k) === -1) return;
+    e.preventDefault();
+    const dir = k === 'ArrowDown' ? 1 : k === 'ArrowUp' ? -1 : 0;
+    if (epg.zone === 'chan') {
+        const list = epgChannels();
+        if (dir) {
+            state.focusedChannelIndex = Math.max(0, Math.min(list.length - 1, state.focusedChannelIndex + dir));
+            updateFocusDOM();
+            clearTimeout(epg.timer);
+            epg.timer = setTimeout(function () { if (state.epgMode) epgLoadFor(list[state.focusedChannelIndex]); }, 350);
+        } else if (k === 'ArrowRight' && epg.days.length) { epg.zone = 'days'; epgRender(); }
+        else if (k === 'ArrowLeft') closeEpg();
+        else if (k === 'Enter' && list[state.focusedChannelIndex]) startEnterPress(list[state.focusedChannelIndex]);
+    } else if (epg.zone === 'days') {
+        if (dir) { epg.dayIdx = Math.max(0, Math.min(epg.days.length - 1, epg.dayIdx + dir)); epg.progIdx = 0; epgRender(); }
+        else if (k === 'ArrowRight' || k === 'Enter') { epg.zone = 'progs'; epg.progIdx = 0; epgRender(); }
+        else if (k === 'ArrowLeft') { epg.zone = 'chan'; epgRender(); }
+    } else {
+        const n = (epg.days[epg.dayIdx] || { items: [] }).items.length;
+        if (dir) { epg.progIdx = Math.max(0, Math.min(n - 1, epg.progIdx + dir)); epgRender(); }
+        else if (k === 'ArrowLeft') { epg.zone = 'days'; epgRender(); }
     }
 }
 
@@ -900,6 +1058,15 @@ function setupKeyboardNavigation() {
     document.addEventListener('keydown', (e) => {
         if (state.isMenuVisible) {
             resetMenuInactivityTimer();
+        }
+
+        // segurar o OK: se o controle manda a tecla repetida, conta o tempo aqui também
+        if (e.key === 'Enter' && e.repeat && state.enterPressed && !state.longDone && state.enterChannel &&
+            Date.now() - (state.enterAt || 0) >= LONG_PRESS_MS) {
+            clearTimeout(state.enterTimer);
+            state.longDone = true;
+            toggleTvFav(state.enterChannel);
+            return;
         }
 
         if (!state.isMenuVisible) {
@@ -940,6 +1107,22 @@ function setupKeyboardNavigation() {
             return;
         }
 
+        if (state.epgMode) { epgKeys(e); return; }
+        if (state.activeColumn === 'folders' && e.key === 'Enter' && state.folders[state.focusedFolderIndex] === SEARCH_FOLDER) {
+            e.preventDefault();
+            if (e.repeat) return;
+            selectFolder(state.focusedFolderIndex, false);
+            chSearchOpen();
+            return;
+        }
+        if (state.activeColumn === 'epgbtn') {
+            if (e.key === 'ArrowLeft') { e.preventDefault(); state.activeColumn = 'channels'; updateFocusDOM(); }
+            else if (e.key === 'Enter') { e.preventDefault(); if (e.repeat) return; clearTimeout(state.enterTimer); state.enterPressed = false; openEpg(); }
+            else if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); handleBackAction(); }
+            else e.preventDefault();
+            return;
+        }
+
         switch (e.key) {
             case 'ArrowUp':
                 e.preventDefault();
@@ -974,6 +1157,9 @@ function setupKeyboardNavigation() {
                     } else {
                         state.focusedChannelIndex = 0;
                     }
+                    updateFocusDOM();
+                } else if (state.activeColumn === 'channels' && state.api) {
+                    state.activeColumn = 'epgbtn';
                     updateFocusDOM();
                 }
                 break;
@@ -1054,6 +1240,9 @@ function setupMouseClickHandlers() {
             }
         }
     });
+
+    const epgBtn = document.getElementById('epg-btn');
+    if (epgBtn) epgBtn.addEventListener('click', function () { resetMenuInactivityTimer(); openEpg(); });
 
     el.channelsList.addEventListener('contextmenu', (e) => {
         const item = e.target.closest('.list-item');
@@ -1223,6 +1412,8 @@ function handleBackAction() {
     if (lk.open) { lkClose(); return true; }
     if (pin.open) { pinClose(false); return true; }
     if (exitDlg.open) { exitClose(); return true; }
+    if (state.epgMode) { closeEpg(); return true; }
+    if (state.isMenuVisible && state.activeColumn === 'epgbtn') { state.activeColumn = 'channels'; updateFocusDOM(); return true; }
     // Tela de login ou tela inicial: pergunta "Deseja sair?" (foco em Não)
     if (loginVisible() || el.splash.classList.contains('splash-visible')) { exitAsk(); return true; }
     // Tela de erro: volta para o início
@@ -1691,6 +1882,7 @@ function lkPaste() {
 function lkText() {
     const d = document.getElementById('lk-input');
     if (d && lk.inp) d.innerHTML = '<span class="lk-txt">' + esc(lk.inp.value) + '</span><span class="lk-cur"></span>';
+    if (lk.inp && lk.inp.id === 'ch-search') chSearchApply(lk.inp.value);
 }
 
 function lkType(ch) {
@@ -3601,7 +3793,50 @@ function buildTvFavFolder() {
     FAV_FOLDER = state.folders.indexOf('Favoritos') !== -1 ? 'Meus Favoritos' : 'Favoritos';
     state.folders.unshift(FAV_FOLDER);
     refreshTvFavList();
+    // "Canais de A a Z" (todos os canais em ordem alfabética) e "Pesquisar" no topo
+    state.channelsByFolder[ALL_FOLDER] = state.channels.filter(function (c) { return !isAdultLocked(c.folder); })
+        .slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'pt', { numeric: true, sensitivity: 'base' }); });
+    state.channelsByFolder[SEARCH_FOLDER] = [];
+    const fi = state.folders.indexOf(FAV_FOLDER);
+    state.folders.splice(fi + 1, 0, ALL_FOLDER);
+    state.folders.unshift(SEARCH_FOLDER);
 }
+
+/* ---------- pesquisa de canais ---------- */
+function chNorm(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+let chSearchInp = null;
+function chSearchOpen() {
+    if (!chSearchInp) {
+        chSearchInp = document.createElement('input');
+        chSearchInp.id = 'ch-search';
+        LK_NAMES['ch-search'] = 'Pesquisar canal';
+    }
+    lkOpen(chSearchInp);
+    lkText();
+}
+function chSearchApply(q) {
+    q = chNorm(q).trim();
+    state.channelsByFolder[SEARCH_FOLDER] = q ? state.channels.filter(function (c) {
+        return !isAdultLocked(c.folder) && chNorm(c.name).indexOf(q) !== -1;
+    }) : [];
+    if (state.folders[state.selectedFolderIndex] === SEARCH_FOLDER) {
+        el.currentFolderTitle.textContent = SEARCH_FOLDER + ' < ' + state.channelsByFolder[SEARCH_FOLDER].length + ' >';
+        renderChannels(SEARCH_FOLDER);
+    }
+}
+function chSearchDone() {
+    if ((state.channelsByFolder[SEARCH_FOLDER] || []).length) {
+        state.activeColumn = 'channels';
+        state.focusedChannelIndex = 0;
+    }
+    updateFocusDOM();
+}
+const _lkCloseOrig = lkClose;
+lkClose = function () {
+    const was = lk.open && lk.inp && lk.inp.id === 'ch-search';
+    _lkCloseOrig();
+    if (was) chSearchDone();
+};
 
 function toggleTvFav(ch) {
     if (!ch) return;
@@ -3629,6 +3864,7 @@ function startEnterPress(ch) {
     if (!ch || state.enterPressed) return;
     state.enterPressed = true;
     state.longDone = false;
+    state.enterAt = Date.now();
     state.enterChannel = ch;
     state.enterTimer = setTimeout(() => {
         state.longDone = true;
@@ -3642,6 +3878,8 @@ function setupEnterKeyUp() {
         clearTimeout(state.enterTimer);
         state.enterPressed = false;
         if (state.longDone) { state.longDone = false; return; }
+        // só toca/fecha se o OK foi mesmo em cima de um canal (evita fechar a grade ao abrir o EPG)
+        if (!state.isMenuVisible || state.activeColumn !== 'channels') return;
         const ch = state.enterChannel;
         if (!ch) return;
         const isAlreadyPlaying = state.playingChannel && state.playingChannel.url === ch.url;

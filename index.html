@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <script>try{if(localStorage.getItem('iptv_session'))document.documentElement.className+=' has-session';}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=17">
+    <link rel="stylesheet" href="style.css?v=19">
     <!-- Local HLS.js Library -->
     <script src="hls.min.js"></script>
 </head>
@@ -35,9 +35,24 @@
             <div class="column channels-column">
                 <div class="column-header">
                     <h2 id="current-folder-title">Canais</h2>
+                    <span class="hdr-hint">Segure OK para favoritar</span>
                 </div>
                 <div class="list-container" id="channels-list">
                     <!-- Channels will be injected here -->
+                </div>
+            </div>
+
+            <!-- Ícone do EPG (abre o guia de programação) -->
+            <div class="epg-btn" id="epg-btn" title="EPG">
+                <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><rect x="6" y="4" width="52" height="56" rx="8"></rect><text x="32" y="25" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor" stroke="none">EPG</text><line x1="16" y1="36" x2="48" y2="36"></line><line x1="16" y1="46" x2="36" y2="46"></line></svg>
+            </div>
+
+            <!-- Guia de programação -->
+            <div class="epg-panel" id="epg-panel">
+                <div class="epg-days" id="epg-days"></div>
+                <div class="epg-right">
+                    <div class="epg-desc" id="epg-desc">Desc:</div>
+                    <div class="epg-progs" id="epg-progs"></div>
                 </div>
             </div>
         </div>
@@ -152,7 +167,7 @@
         </div>
 
         <!-- Version Footer -->
-        <div class="splash-version">v1.0.0 &middot; b25</div>
+        <div class="splash-version">v1.0.0 &middot; b27</div>
     </div>
 
     <!-- Status & Loading Overlay -->
@@ -206,6 +221,6 @@
         <div class="vod-pui-center" id="vod-pui-center"></div>
     </div>
 
-    <script src="app.js?v=25"></script>
+    <script src="app.js?v=27"></script>
 </body>
 </html>
