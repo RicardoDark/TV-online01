@@ -1112,11 +1112,15 @@ function isBackKey(e) {
     return e.key === 'Escape' || e.key === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack';
 }
 
-// Mantém VÁRIAS páginas falsas na pilha. O Chrome/WebView ignora páginas criadas
-// sem toque/tecla do usuário (as "puladas"); com a pilha cheia, o Voltar do aparelho
-// nunca chega ao fim e o diálogo nativo "Deseja sair agora?" não aparece.
-function backTrapFill() {
+// Mantém VÁRIAS páginas falsas na pilha. O Chrome/WebView IGNORA ao voltar as páginas
+// criadas antes de qualquer toque/tecla do usuário. Por isso só contamos (e criamos)
+// páginas depois de uma interação real; assim o Voltar nunca chega ao fim da pilha
+// e o diálogo nativo "Deseja sair agora?" não aparece.
+function backTrapFill(fromGesture) {
     if (backTrap.exiting) return;
+    const ua = navigator.userActivation;
+    const activated = fromGesture || (ua && ua.hasBeenActive);
+    if (!activated) return;
     try {
         while (backTrap.depth < backTrap.max) {
             history.pushState({ iptvTrap: 1 }, '', location.href);
@@ -1127,7 +1131,7 @@ function backTrapFill() {
 
 function setupBackTrap() {
     if (!window.history || !history.pushState) return;
-    backTrapFill();
+    backTrapFill(false);   // só cria se o usuário já interagiu (ex.: voltando de outra tela)
     window.addEventListener('popstate', function () {
         if (backTrap.depth > 0) backTrap.depth--;
         if (backTrap.exiting) return;   // já confirmou sair: deixa o aparelho fechar
@@ -1136,26 +1140,24 @@ function setupBackTrap() {
             handleBackAction();
             backTrap.exitAt = 0;
         }
-        backTrapFill();
+        backTrapFill(false);
     });
     // marca quando o Voltar chegou como tecla (controle) para não tratar em dobro
     document.addEventListener('keydown', function (e) {
         if (isBackKey(e)) backTrap.lastKey = Date.now();
     }, true);
-    // qualquer toque/tecla (que não seja Voltar) reabastece a pilha com "gesto do usuário",
-    // que é o que faz o aparelho respeitar as páginas falsas
-    ['keydown', 'click', 'touchstart', 'mousedown'].forEach(function (ev) {
+    // qualquer toque/tecla (que não seja Voltar) cria as páginas falsas COM gesto do usuário
+    ['keydown', 'keyup', 'click', 'touchstart', 'pointerdown', 'mousedown'].forEach(function (ev) {
         document.addEventListener(ev, function (e) {
-            if (e.type === 'keydown' && isBackKey(e)) return;
+            if ((e.type === 'keydown' || e.type === 'keyup') && isBackKey(e)) return;
             backTrap.exitAt = 0;
-            backTrapFill();
+            backTrapFill(true);
         }, true);
     });
-    // voltando de outro app / tela apagada: refaz a pilha
     document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) backTrapFill();
+        if (!document.hidden) backTrapFill(false);
     });
-    window.addEventListener('pageshow', function () { backTrap.depth = 0; backTrapFill(); });
+    window.addEventListener('pageshow', function () { backTrap.depth = 0; backTrapFill(false); });
 }
 
 
