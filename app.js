@@ -1332,90 +1332,28 @@ function setupBackTrap() {
         document.addEventListener(ev, function (e) {
             if (e.type === 'keydown' && isBackKey(e)) return;
             backTrap.exitAt = 0;
+            backTrap.exiting = false;
             backTrapPush();
         }, true);
     });
 }
 
 
-/* ====================================================================
-   PERGUNTA "DESEJA SAIR?"  (Sim / Não) - o foco começa em NÃO
-   Aparece ao apertar Voltar na tela de login ou na tela inicial.
-   ==================================================================== */
-const exitDlg = { open: false, idx: 1, box: null, btns: [] };
-
-function exitAsk() {
-    if (exitDlg.open) return;
-    exitDlg.open = true;
-    exitDlg.idx = 1;   // 0 = Sim, 1 = Não (começa em Não)
-    const box = document.createElement('div');
-    box.id = 'exit-modal';
-    box.innerHTML =
-        '<div class="exit-box">' +
-          '<div class="exit-title">Deseja sair do aplicativo?</div>' +
-          '<div class="exit-btns">' +
-            '<div class="exit-btn" data-i="0">SIM</div>' +
-            '<div class="exit-btn" data-i="1">NÃO</div>' +
-          '</div>' +
-        '</div>';
-    document.body.appendChild(box);
-    exitDlg.box = box;
-    exitDlg.btns = box.querySelectorAll('.exit-btn');
-    box.addEventListener('click', function (e) {
-        const t = e.target.closest ? e.target.closest('.exit-btn') : null;
-        if (!t) return;
-        exitDlg.idx = parseInt(t.getAttribute('data-i'), 10);
-        exitFocus();
-        exitChoose();
-    });
-    window.addEventListener('keydown', exitKeys, true);   // captura: bloqueia o resto do app enquanto aberto
-    exitFocus();
-}
-
-function exitClose() {
-    if (!exitDlg.open) return;
-    window.removeEventListener('keydown', exitKeys, true);
-    if (exitDlg.box && exitDlg.box.parentNode) exitDlg.box.parentNode.removeChild(exitDlg.box);
-    exitDlg.open = false;
-    exitDlg.box = null;
-}
-
-function exitFocus() {
-    for (let i = 0; i < exitDlg.btns.length; i++) exitDlg.btns[i].classList.toggle('efocus', i === exitDlg.idx);
-}
-
-function exitChoose() {
-    if (exitDlg.idx !== 0) { exitClose(); return; }
-    // SIM: libera o Voltar do aparelho e tenta fechar o app
-    exitClose();
-    backTrap.exiting = true;
-    try { window.close(); } catch (e) {}
-    try { history.go(-(Math.max(1, history.length - 1))); } catch (e) {}
-    setTimeout(function () {
-        // se o app ainda está aberto, o próximo Voltar do aparelho fecha
-        vodMsg('Aperte Voltar mais uma vez para fechar', 4000);
-    }, 600);
-}
-
-function exitKeys(e) {
-    if (!exitDlg.open) return;
-    e.stopImmediatePropagation();
-    e.preventDefault();
-    if (e.repeat) return;
-    const k = e.key;
-    if (k === 'Escape' || k === 'Backspace' || k === 'GoBack' || k === 'BrowserBack') { exitClose(); return; }
-    if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') { exitDlg.idx = exitDlg.idx ? 0 : 1; exitFocus(); return; }
-    if (k === 'Enter' || k === ' ') { exitChoose(); return; }
-}
-
 function handleBackAction() {
     if (lk.open) { lkClose(); return true; }
     if (pin.open) { pinClose(false); return true; }
-    if (exitDlg.open) { exitClose(); return true; }
     if (state.epgMode) { closeEpg(); return true; }
     if (state.isMenuVisible && state.activeColumn === 'epgbtn') { state.activeColumn = 'channels'; updateFocusDOM(); return true; }
-    // Tela de login ou tela inicial: pergunta "Deseja sair?" (foco em Não)
-    if (loginVisible() || el.splash.classList.contains('splash-visible')) { exitAsk(); return true; }
+    // Tela de login ou tela inicial: sem pergunta própria. O 1º Voltar só avisa e deixa o
+    // histórico vazio; o 2º Voltar é tratado pelo próprio aparelho (sair do app).
+    if (loginVisible() || el.splash.classList.contains('splash-visible')) {
+        if (backTrap.exitAt && Date.now() - backTrap.exitAt < 4000) return true;
+        backTrap.exitAt = Date.now();
+        backTrap.exiting = true;
+        vodMsg('Aperte Voltar de novo para sair', 3500);
+        try { history.go(-Math.max(1, history.length - 1)); } catch (e) {}
+        return true;
+    }
     // Tela de erro: volta para o início
     if (state.fatal) { window.location.reload(); return true; }
     // Carregando e travou? Voltar recarrega o app (volta para a tela inicial)
