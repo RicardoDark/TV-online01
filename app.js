@@ -2755,8 +2755,13 @@ function buildVodCards(sets) {
     vod.cards.forEach(function (c) { if (vod.folders.indexOf(c.group) === -1) vod.folders.push(c.group); });
     vod.folders = vod.folders.filter(function (f) { return !isAdultText(f); })
         .concat(vod.folders.filter(function (f) { return isAdultText(f); }));
-    vod.cats = [{ id: '__all', label: 'Todos' }, { id: '__fav', label: 'Favoritos' }]
+    vod.cats = [{ id: '__fav', label: 'Favoritos' }, { id: '__all', label: 'Todos' }]
         .concat(vod.folders.map(function (f) { return { id: f, label: f }; }));
+}
+
+function allCatIndex() {
+    const i = vod.cats.map(function (c) { return c.id; }).indexOf('__all');
+    return i === -1 ? 0 : i;
 }
 
 function getCatList(id) {
@@ -2836,11 +2841,11 @@ function startVod(sets, entryCat) {
     setupVodPointer();
 
     vod.catId = '__all';
-    vod.catIndex = 0;
+    vod.catIndex = allCatIndex();
     if (entryCat) {
         vod.catId = entryCat;
         const ci = vod.cats.map(function (c) { return c.id; }).indexOf(entryCat);
-        vod.catIndex = ci === -1 ? 0 : ci;
+        vod.catIndex = ci === -1 ? allCatIndex() : ci;
     }
     const startList = getCatList(vod.catId);
     if (entryCat && startList.length) vodShowHome('grid', 0);
@@ -3178,7 +3183,7 @@ function vodBack() {
         vodStop();
         setWinMode(false);
         const s = vod.stack.pop();
-        if (s) restoreView(s); else { vod.catId = '__all'; vod.catIndex = 0; vodShowHome('cats', 0); }
+        if (s) restoreView(s); else { vod.catId = '__all'; vod.catIndex = allCatIndex(); vodShowHome('cats', vod.catIndex); }
         return true;
     }
     if (vod.view === 'search') {
@@ -3374,9 +3379,11 @@ function detailKeys(e) {
         vod.zone = nz; vod.idx = ni;
         applyFocus();
     } else if (k === 'ArrowLeft') {
-        if (vod.idx > 0) { vod.idx--; applyFocus(); }
+        if (vod.zone === 'act' && vod.idx === 0) { vod.zone = 'video'; vod.idx = 0; applyFocus(); }
+        else if (vod.idx > 0) { vod.idx--; applyFocus(); }
     } else if (k === 'ArrowRight') {
-        if (vod.idx < zoneCount(vod.zone) - 1) { vod.idx++; applyFocus(); }
+        if (vod.zone === 'video') { vod.zone = 'act'; vod.idx = 0; applyFocus(); }
+        else if (vod.idx < zoneCount(vod.zone) - 1) { vod.idx++; applyFocus(); }
     } else if (k === 'Enter') {
         detailEnter();
     }
