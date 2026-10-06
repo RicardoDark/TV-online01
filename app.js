@@ -2307,6 +2307,7 @@ function loadSeriesEpisodes(card) {
         if (info.director) card.director = info.director;
         if (info.cast) card.cast = info.cast;
         if (info.genre) card.genre = info.genre;
+        if (info.youtube_trailer) card.trailer = info.youtube_trailer;
         card.eps = eps;
         card.loaded = eps.length > 0;
         return eps.length > 0;
@@ -3243,6 +3244,7 @@ function vodOpenDetail(card, pushCurrent) {
     }
     if (vod.view === 'detail') { vodStop(); }
     vod.card = card;
+    vod.trailerId = '';
     addHistory(card);
     if (card.kind === 'series') {
         const lastUrl = lsGet(LS_LASTEP, {})[card.key];
@@ -3340,7 +3342,7 @@ function updateNow() {
 
 function zoneCount(z) {
     if (z === 'video') return 1;
-    if (z === 'act') return 2;
+    if (z === 'act') return $v('vod-trailerbtn') ? 3 : 2;
     if (z === 'seasons') return seasonsList().length;
     if (z === 'eps') return epsOfSeason().length;
     if (z === 'rel') return vod.related.length;
@@ -3384,6 +3386,7 @@ function detailEnter() {
     if (vod.zone === 'video') { enterFullscreen(); }
     else if (vod.zone === 'act') {
         if (vod.idx === 0) enterFullscreen();
+        else if (vod.idx === 2) openTrailer();
         else {
             toggleFav(vod.card);
             const b = $v('vod-favbtn');
@@ -3415,6 +3418,7 @@ function playEpisode(ep) {
 /* ---------- sinopse / nota (TMDB, opcional) ---------- */
 function fetchMeta(card) {
     const syn = $v('vod-syn');
+    if (card.trailer) addTrailerBtn(card, card.trailer);
     if (card.plot) {
         fillMeta(card, { overview: card.plot, nota: parseRating(card.rating), data: card.releaseDate, director: card.director, cast: card.cast, genre: card.genre });
         return;
@@ -3427,7 +3431,8 @@ function fetchMeta(card) {
                 overview: i.plot || i.description || '', nota: parseRating(i.rating || i.rating_5based * 2),
                 data: i.releasedate || i.release_date || '',
                 director: i.director || '', cast: i.cast || i.actors || '', genre: i.genre || '',
-                duration: i.duration || (i.episode_run_time ? i.episode_run_time + ' min' : '')
+                duration: i.duration || (i.episode_run_time ? i.episode_run_time + ' min' : ''),
+                trailer: i.youtube_trailer || ''
             };
             vod.metaCache[card.key] = m;
             if (vod.card === card) fillMeta(card, m);
@@ -3461,6 +3466,44 @@ function fillMeta(card, m) {
     if (m.nota) setMetaRow('vod-m-nota', fmtNota(m.nota));
     if (m.data) setMetaRow('vod-m-data', m.data);
     if (card.kind !== 'series' && m.duration) setMetaRow('vod-m-dur', m.duration);
+    if (m.trailer) addTrailerBtn(card, m.trailer);
+}
+
+/* ---------- trailer (só aparece se o servidor IPTV informar) ---------- */
+function trailerIdOf(raw) {
+    raw = String(raw || '').trim();
+    if (!raw) return '';
+    if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+    const m = raw.match(/(?:youtu\.be\/|embed\/|v\/|watch\?(?:.*&)?v=)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : '';
+}
+function addTrailerBtn(card, raw) {
+    if (vod.card !== card || vod.view !== 'detail') return;
+    const id = trailerIdOf(raw);
+    if (!id || $v('vod-trailerbtn')) return;
+    const box = document.querySelector('#vod-root .vod-actions');
+    if (!box) return;
+    vod.trailerId = id;
+    const b = document.createElement('div');
+    b.className = 'vod-act';
+    b.id = 'vod-trailerbtn';
+    b.setAttribute('data-z', 'act');
+    b.setAttribute('data-i', '2');
+    b.innerHTML = ICON_PLAY + 'Trailer';
+    box.appendChild(b);
+}
+function openTrailer() {
+    const id = vod.trailerId;
+    if (!id) return;
+    try { vodStopKeepWindow(); } catch (e) {}
+    vodMsg('Abrindo trailer no YouTube...', 3000);
+    const web = 'https://www.youtube.com/watch?v=' + id;
+    if (state.isAndroid) {
+        window.location.href = 'vnd.youtube://' + id;
+        setTimeout(function () { if (!document.hidden) window.location.href = web; }, 1200);
+    } else {
+        window.open(web, '_blank');
+    }
 }
 
 /* ---------- vídeo: janela, reprodução e progresso ---------- */
