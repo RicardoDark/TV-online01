@@ -1416,7 +1416,7 @@ body {
 .channels-column .list-item.selected { background: transparent; border-color: transparent; }
 .channels-column .list-item.selected::before { content: none; }
 .channels-column .list-item.selected .ch-name { color: #00e5ff; }
-.channels-column .list-item.focused { background: rgba(255,255,255,0.18); border-color: #fff; color: #fff !important; transform: none; box-shadow: none; }
+.channels-column .list-item.focused { background: linear-gradient(90deg, #2f58a8 0%, #4a86dc 35%, #4a86dc 100%); border-color: transparent; color: #fff !important; transform: none; box-shadow: none; }
 .ch-logo { width: 84px; height: 84px; flex: none; margin-right: 22px; border-radius: 18px; background: rgba(235,238,245,0.94); border: 2px solid #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .channels-column .list-item .ch-logo img { width: 100%; height: 100%; margin: 0; border-radius: 0; background: transparent; object-fit: contain; padding: 6px; box-sizing: border-box; }
 .ch-txt { min-width: 0; flex: 1; }
